@@ -41,6 +41,9 @@ backend/**/bin/
 backend/**/uploads/
 bin/
 
+target/
+uploads/
+
 # Java artifacts
 *.class
 *.jar
@@ -138,3 +141,5 @@ temp/
 # Mac/Linux Executables
 # ─────────────────────────────
 *.out
+
+
