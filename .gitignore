@@ -1,0 +1,177 @@
+# ─────────────────────────────────────────────
+# Dependencies
+# ─────────────────────────────────────────────
+node_modules/
+
+# ─────────────────────────────────────────────
+# Java / Spring Boot / Maven / Gradle
+# ─────────────────────────────────────────────
+target/
+build/
+.gradle/
+
+*.class
+*.jar
+*.war
+*.ear
+
+# Maven Wrapper
+.mvn/wrapper/maven-wrapper.jar
+
+# Generated Maven Files
+dependency-reduced-pom.xml
+
+# JVM Crash Logs
+hs_err_pid*
+replay_pid*
+
+# Spring Logs
+spring.log
+
+# ─────────────────────────────────────────────
+# Frontend Build Outputs
+# ─────────────────────────────────────────────
+dist/
+dist-ssr/
+
+# Vite
+.vite/
+
+# Next.js
+.next/
+out/
+
+# Nuxt
+.nuxt/
+
+# Angular
+.angular/
+
+# React
+coverage/
+
+# ─────────────────────────────────────────────
+# Environment Files
+# ─────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ─────────────────────────────────────────────
+# Logs
+# ─────────────────────────────────────────────
+logs/
+*.log
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ─────────────────────────────────────────────
+# Cache Files
+# ─────────────────────────────────────────────
+.cache/
+.npm-cache/
+.eslintcache
+
+# ─────────────────────────────────────────────
+# IDEs & Editors
+# ─────────────────────────────────────────────
+
+# VS Code
+.vscode/*
+!.vscode/extensions.json
+
+# IntelliJ / JetBrains
+.idea/
+*.iml
+out/
+
+# Eclipse / STS
+.project
+.classpath
+.settings/
+
+# NetBeans
+nbproject/private/
+nbbuild/
+.nb-gradle/
+
+# Vim
+*.swp
+*.swo
+
+# ─────────────────────────────────────────────
+# OS Files
+# ─────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ─────────────────────────────────────────────
+# Temporary Files
+# ─────────────────────────────────────────────
+tmp/
+temp/
+*.tmp
+*.temp
+*.local
+
+# ─────────────────────────────────────────────
+# Docker
+# ─────────────────────────────────────────────
+docker-data/
+*.pid
+
+# Docker Overrides
+docker-compose.override.yml
+
+# ─────────────────────────────────────────────
+# Testing Files
+# ─────────────────────────────────────────────
+test_api.js
+test_api.cjs
+test_modules.cjs
+
+test_*.js
+test_*.cjs
+
+# ─────────────────────────────────────────────
+# Lombok
+# ─────────────────────────────────────────────
+lombok.config
+
+# ─────────────────────────────────────────────
+# Kubernetes
+# ─────────────────────────────────────────────
+*.kubeconfig
+
+# ─────────────────────────────────────────────
+# Terraform
+# ─────────────────────────────────────────────
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+
+# ─────────────────────────────────────────────
+# Mac/Linux Permissions
+# ─────────────────────────────────────────────
+*.pem
+*.key
+
+# ─────────────────────────────────────────────
+# Database Files
+# ─────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+
+# ─────────────────────────────────────────────
+# Miscellaneous
+# ─────────────────────────────────────────────
+*.bak
+*.backup
+*.old
+*.orig
