@@ -1,0 +1,134 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+
+  config:
+    import: optional:file:../.env[.properties],optional:file:../../.env[.properties],optional:file:.env[.properties],optional:configserver:http://localhost:8888
+
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true # ✅ important
+
+      globalcors:
+        add-to-simple-url-handler-mapping: true
+        corsConfigurations:
+          '[/**]':
+            allowedOrigins:
+            - "http://localhost:3000"
+            - "http://localhost:3001"
+            - "http://localhost:5173"
+            allowedMethods:
+            - GET
+            - POST
+            - PUT
+            - DELETE
+            - OPTIONS
+            allowedHeaders: "*"
+            allowCredentials: true
+
+      routes:
+      - id: auth-service
+        uri: lb://auth-service
+        predicates:
+        - Path=/auth/**,/login/**,/oauth2/**
+
+      - id: user-service
+        uri: lb://user-service
+        predicates:
+        - Path=/users/**
+
+      - id: course-service
+        uri: lb://course-service
+        predicates:
+        - Path=/courses/**
+
+      - id: course-service-quizzes
+        uri: lb://course-service
+        predicates:
+        - Path=/quizzes/**
+
+      - id: course-service-questions
+        uri: lb://course-service
+        predicates:
+        - Path=/questions/**
+
+      - id: course-service-attempts
+        uri: lb://course-service
+        predicates:
+        - Path=/attempts/**
+
+      - id: course-service-modules
+        uri: lb://course-service
+        predicates:
+        - Path=/modules/**
+
+      - id: course-service-lessons
+        uri: lb://course-service
+        predicates:
+        - Path=/lessons/**
+
+      - id: course-service-assignments
+        uri: lb://course-service
+        predicates:
+        - Path=/assignments/**
+
+      - id: course-service-submissions
+        uri: lb://course-service
+        predicates:
+        - Path=/submissions/**
+
+      - id: course-service-moderation
+        uri: lb://course-service
+        predicates:
+        - Path=/moderation/**
+
+      - id: enrollment-service
+        uri: lb://enrollment-service
+        predicates:
+        - Path=/enrollments/**
+
+      - id: payment-service
+        uri: lb://payment-service
+        predicates:
+        - Path=/payments/**
+
+      - id: notification-service
+        uri: lb://notification-service
+        predicates:
+        - Path=/notifications/**
+
+      - id: admin-server
+        uri: lb://admin-server
+        predicates:
+        - Path=/admin/**
+
+eureka:
+  instance:
+    prefer-ip-address: true
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+---
+# ✅ Docker Profile
+spring:
+  config:
+    activate:
+      on-profile: docker
+    import: optional:configserver:http://config-service:8888
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://discovery-service:8761/eureka
