@@ -25,8 +25,8 @@ pipeline {
 
         // === Image tag strategy: branch + build number + short commit ===
         GIT_SHORT_SHA       = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-        IMAGE_TAG           = "${BRANCH_NAME}-${BUILD_NUMBER}-${GIT_SHORT_SHA}"
-        PREV_IMAGE_TAG      = sh(script: "ssh -o StrictHostKeyChecking=no ${APP_SERVER_USER}@${APP_SERVER_IP} 'cat ${APP_DIR}/.current_tag 2>/dev/null || echo latest'", returnStdout: true).trim()
+        SAFE_BRANCH         = "${env.BRANCH_NAME ?: env.GIT_BRANCH ?: 'main'}"
+        IMAGE_TAG           = "${SAFE_BRANCH.replaceAll('/', '-')}-${BUILD_NUMBER}-${GIT_SHORT_SHA}"
     }
 
     // ── Run pipeline only on relevant branches ─────────────────────────────────────
@@ -195,7 +195,7 @@ pipeline {
                                 ${APP_SERVER_USER}@${APP_SERVER_IP}:${APP_DIR}/docker-compose.yml
 
                             # Execute deployment on remote server
-                            ssh -o StrictHostKeyChecking=no ${APP_SERVER_USER}@${APP_SERVER_IP} bash << 'REMOTE_SCRIPT'
+                            ssh -o StrictHostKeyChecking=no ${APP_SERVER_USER}@\$APP_SERVER_IP bash << 'REMOTE_SCRIPT'
                                 set -e
                                 cd ${APP_DIR}
 
@@ -236,53 +236,29 @@ REMOTE_SCRIPT
             }
         }
 
-        // ── STAGE 7: HEALTH CHECK & ROLLBACK ──────────────────────────────────────
+        // ── STAGE 7: HEALTH CHECK ─────────────────────────────────────────────────
         stage('Health Check') {
             when {
-                branch 'main'
+                anyOf {
+                    branch 'main'
+                    expression { env.GIT_BRANCH == 'origin/main' }
+                }
             }
             steps {
                 sshagent(['app-server-ssh']) {
                     script {
                         def healthOk = sh(
                             script: """
-                                ssh -o StrictHostKeyChecking=no ${APP_SERVER_USER}@${APP_SERVER_IP} \\
+                                ssh -o StrictHostKeyChecking=no ${APP_SERVER_USER}@\$APP_SERVER_IP \\
                                     'curl -sf http://localhost:8080/actuator/health | grep -q "UP"'
                             """,
                             returnStatus: true
                         ) == 0
 
                         if (!healthOk) {
-                            echo "❌ Health check failed! Initiating rollback to: ${PREV_IMAGE_TAG}"
-                            sshagent(['app-server-ssh']) {
-                                sh """
-                                    ssh -o StrictHostKeyChecking=no ${APP_SERVER_USER}@${APP_SERVER_IP} bash << 'ROLLBACK'
-                                        set -e
-                                        cd ${APP_DIR}
-
-                                        export SERVICE_IMAGE_PREFIX=${IMAGE_PREFIX}
-
-                                        # Retag previous images as the active ones
-                                        for SERVICE in discovery-service config-service api-gateway auth-service \\
-                                                       user-service course-service enrollment-service \\
-                                                       payment-service notification-service admin-server frontend; do
-                                            docker tag ${IMAGE_PREFIX}/\${SERVICE}:${PREV_IMAGE_TAG} \\
-                                                       ${IMAGE_PREFIX}/\${SERVICE}:latest 2>/dev/null || true
-                                        done
-
-                                        docker compose up -d --no-deps --no-build \\
-                                            api-gateway auth-service user-service course-service \\
-                                            enrollment-service payment-service notification-service \\
-                                            admin-server frontend
-
-                                        echo "${PREV_IMAGE_TAG}" > .current_tag
-                                        echo "✅ Rollback complete."
-ROLLBACK
-                                """
-                            }
-                            error("Deployment failed health check. Rolled back to ${PREV_IMAGE_TAG}.")
+                            error("❌ Deployment failed health check! The API Gateway is not reporting as UP.")
                         } else {
-                            echo "✅ Health check passed!"
+                            echo "✅ Health check passed! The application is running successfully."
                         }
                     }
                 }
@@ -305,10 +281,10 @@ ROLLBACK
     // ── POST ACTIONS ───────────────────────────────────────────────────────────────
     post {
         success {
-            echo "🎉 Pipeline SUCCEEDED for branch '${BRANCH_NAME}' — Build #${BUILD_NUMBER}"
+            echo "🎉 Pipeline SUCCEEDED for branch '${env.BRANCH_NAME ?: env.GIT_BRANCH ?: 'unknown'}' — Build #${BUILD_NUMBER}"
         }
         failure {
-            echo "💥 Pipeline FAILED for branch '${BRANCH_NAME}' — Build #${BUILD_NUMBER}"
+            echo "💥 Pipeline FAILED for branch '${env.BRANCH_NAME ?: env.GIT_BRANCH ?: 'unknown'}' — Build #${BUILD_NUMBER}"
         }
         always {
             echo "Pipeline finished with status: ${currentBuild.currentResult}"
