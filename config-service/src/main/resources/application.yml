@@ -1,0 +1,45 @@
+server:
+  port: 8888
+
+spring:
+  application:
+    name: config-service
+
+  profiles:
+    active: native
+
+  cloud:
+    config:
+      server:
+        native:
+          search-locations: file:./config-repo,file:../config-repo
+
+eureka:
+  instance:
+    prefer-ip-address: true
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+---
+# ✅ Docker Profile
+spring:
+  config:
+    activate:
+      on-profile: docker
+
+  cloud:
+    config:
+      server:
+        native:
+          search-locations: file:/config-repo # docker volume path
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://discovery-service:8761/eureka

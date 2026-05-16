@@ -1,0 +1,17 @@
+server:
+  port: 8761
+
+spring:
+  application:
+    name: discovery-service
+
+eureka:
+  client:
+    register-with-eureka: false
+    fetch-registry: false
+    service-url:
+      defaultZone: http://localhost:8761/eureka/   # 👈 ADD THIS
+
+  server:
+    enable-self-preservation: false
+    peer-node-read-timeout-ms: 10000   # 👈 prevent timeout spam

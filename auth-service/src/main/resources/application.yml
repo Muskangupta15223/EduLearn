@@ -1,0 +1,69 @@
+server:
+  port: 8082
+  forward-headers-strategy: framework
+
+spring:
+  application:
+    name: auth-service
+
+  config:
+    import: optional:file:../.env[.properties],optional:file:../../.env[.properties],optional:file:.env[.properties],optional:configserver:http://localhost:8888
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/auth_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+    username: ${SPRING_DATASOURCE_USERNAME:root}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID:}
+            client-secret: ${GOOGLE_CLIENT_SECRET:}
+            scope:
+            - profile
+            - email
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+
+eureka:
+  instance:
+    prefer-ip-address: true
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+app:
+  frontend-url: ${FRONTEND_URL:http://localhost:3000}
+  bootstrap-admin:
+    enabled: ${BOOTSTRAP_ADMIN_ENABLED:false}
+    email: ${BOOTSTRAP_ADMIN_EMAIL:}
+    password: ${BOOTSTRAP_ADMIN_PASSWORD:}
+    name: ${BOOTSTRAP_ADMIN_NAME:Admin}
+---
+# ✅ Docker Profile
+spring:
+  config:
+    activate:
+      on-profile: docker
+    import: optional:configserver:http://config-service:8888
+
+  datasource:
+    url: jdbc:mysql://mysql-db:3306/auth_db
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://discovery-service:8761/eureka
