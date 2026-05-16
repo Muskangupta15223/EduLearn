@@ -1,9 +1,10 @@
 package com.olp.user.controller;
 
+import com.olp.user.constant.UserConstants;
+import com.olp.user.dto.UserDtos.*;
 import com.olp.user.model.UserProfile;
 import com.olp.user.service.UserService;
 import java.util.List;
-import java.util.Map;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -52,11 +53,11 @@ public class UserController {
   @PutMapping("/{id}/role")
   public ResponseEntity<UserProfile> updateRole(
     @PathVariable Long id,
-    @RequestBody Map<String, String> body,
+    @RequestBody UserRoleUpdateRequest request,
     @RequestHeader(value = "X-User-Role", required = false) String actorRole
   ) {
     requireAdmin(actorRole);
-    return userService.updateUserRole(id, body.get("role"))
+    return userService.updateUserRole(id, request.role())
         .map(ResponseEntity::ok)
         .orElse(ResponseEntity.notFound().build());
   }
@@ -64,19 +65,19 @@ public class UserController {
   @PutMapping("/{id}/status")
   public ResponseEntity<UserProfile> updateStatus(
       @PathVariable Long id,
-      @RequestBody Map<String, String> body,
+      @RequestBody UserStatusUpdateRequest request,
       @RequestHeader(value = "X-User-Role", required = false) String actorRole
   ) {
     requireAdmin(actorRole);
-    String status = body.get("status");
+    String status = request.status();
     return userService.getUserById(id)
         .map(user -> {
           UserProfile patch = new UserProfile();
           patch.setAccountStatus(status);
-          if ("SUSPENDED".equalsIgnoreCase(status)) {
-            patch.setRole("DEACTIVATED");
-          } else if ("DEACTIVATED".equalsIgnoreCase(user.getRole())) {
-            patch.setRole("STUDENT");
+          if (UserConstants.STATUS_SUSPENDED.equalsIgnoreCase(status)) {
+            patch.setRole(UserConstants.ROLE_DEACTIVATED);
+          } else if (UserConstants.ROLE_DEACTIVATED.equalsIgnoreCase(user.getRole())) {
+            patch.setRole(UserConstants.ROLE_STUDENT);
           }
           return ResponseEntity.ok(userService.updateUserProfile(id, patch).orElse(user));
         })
@@ -177,14 +178,14 @@ public class UserController {
   @PutMapping("/{id}/verification/review")
   public ResponseEntity<UserProfile> reviewInstructorVerification(
       @PathVariable Long id,
-      @RequestBody Map<String, String> body,
+      @RequestBody VerificationReviewRequest request,
       @RequestHeader(value = "X-User-Id", required = false) Long reviewerId,
       @RequestHeader(value = "X-User-Role", required = false) String reviewerRole
   ) {
       return ResponseEntity.ok(userService.reviewInstructorVerification(
           id,
-          body.get("status"),
-          body.get("comment"),
+          request.status(),
+          request.comment(),
           reviewerId,
           reviewerRole
       ));
@@ -209,19 +210,19 @@ public class UserController {
   }
 
   private void requireAdmin(String role) {
-      if (role == null || !"ADMIN".equalsIgnoreCase(role)) {
-          throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "Admin access required");
+      if (role == null || !UserConstants.ROLE_ADMIN.equalsIgnoreCase(role)) {
+          throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, UserConstants.MSG_ADMIN_ACCESS_REQUIRED);
       }
   }
 
   private void requireSelfOrAdmin(Long targetUserId, Long actorUserId, String actorRole) {
-      if ("ADMIN".equalsIgnoreCase(actorRole)) {
+      if (UserConstants.ROLE_ADMIN.equalsIgnoreCase(actorRole)) {
           return;
       }
       if (actorUserId == null || !targetUserId.equals(actorUserId)) {
           throw new org.springframework.web.server.ResponseStatusException(
               org.springframework.http.HttpStatus.FORBIDDEN,
-              "You can only access your own profile"
+              UserConstants.MSG_ACCESS_OWN_PROFILE_ONLY
           );
       }
   }

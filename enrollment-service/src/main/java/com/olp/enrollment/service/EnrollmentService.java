@@ -10,6 +10,8 @@ import com.olp.enrollment.model.LessonProgress;
 import com.olp.enrollment.repository.CertificateRepository;
 import com.olp.enrollment.repository.EnrollmentRepository;
 import com.olp.enrollment.repository.LessonProgressRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -30,6 +32,8 @@ import java.util.stream.Collectors;
 
 @Service
 public class EnrollmentService {
+
+    private static final Logger log = LoggerFactory.getLogger(EnrollmentService.class);
 
     private final EnrollmentRepository repository;
     private final LessonProgressRepository lessonProgressRepository;
@@ -303,7 +307,7 @@ public class EnrollmentService {
                 ImageIO.write(image, "png", baos);
                 return baos.toByteArray();
             } catch (Exception e) {
-                System.err.println("Error generating certificate image: " + e.getMessage());
+                log.error("Error generating certificate image: {}", e.getMessage(), e);
                 return null;
             }
         });
@@ -384,7 +388,7 @@ public class EnrollmentService {
 
             kafkaTemplate.send("course-events", objectMapper.writeValueAsString(event));
         } catch (Exception e) {
-            System.err.println("Error publishing enrollment event: " + e.getMessage());
+            log.error("Error publishing enrollment event: {}", e.getMessage(), e);
         }
     }
 
@@ -422,7 +426,7 @@ public class EnrollmentService {
                 return priceValue <= 0;
             }
         } catch (Exception e) {
-            System.err.println("Could not determine course price for courseId=" + courseId + ": " + e.getMessage());
+            log.warn("Could not determine course price for courseId={}: {}", courseId, e.getMessage());
         }
         return false;
     }
@@ -536,7 +540,7 @@ public class EnrollmentService {
             event.put("certificateNo", certificate.getCertificateNo());
             kafkaTemplate.send("course-events", objectMapper.writeValueAsString(event));
         } catch (Exception e) {
-            System.err.println("Error publishing certificate event: " + e.getMessage());
+            log.error("Error publishing certificate event: {}", e.getMessage(), e);
         }
     }
 

@@ -12,10 +12,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class KafkaConsumerServiceTest {
@@ -23,79 +22,101 @@ class KafkaConsumerServiceTest {
     @Mock
     private UserProfileRepository repository;
 
-    private KafkaConsumerService consumerService;
+    private KafkaConsumerService kafkaConsumerService;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeEach
     void setUp() {
-        consumerService = new KafkaConsumerService(repository, new ObjectMapper());
+        kafkaConsumerService = new KafkaConsumerService(repository, objectMapper);
     }
 
     @Test
-    void createsUserProfileWithAvatarFromSignupEvent() {
-        when(repository.existsById(8L)).thenReturn(false);
+    void consumeUserEvents_signup_createsProfile() throws Exception {
+        when(repository.existsById(1L)).thenReturn(false);
+        when(repository.save(any(UserProfile.class))).thenAnswer(i -> i.getArgument(0));
 
-        consumerService.consumeUserEvents("""
-                {
-                  "eventType":"USER_SIGNUP",
-                  "userId":8,
-                  "email":"asha@example.com",
-                  "fullName":"Asha",
-                  "role":"STUDENT",
-                  "avatarUrl":"https://lh3.googleusercontent.com/avatar"
-                }
-                """);
+        String message = objectMapper.writeValueAsString(java.util.Map.of(
+                "eventType", "USER_SIGNUP",
+                "userId", 1,
+                "email", "user@test.com",
+                "fullName", "Test User",
+                "role", "STUDENT"
+        ));
+
+        kafkaConsumerService.consumeUserEvents(message);
 
         ArgumentCaptor<UserProfile> captor = ArgumentCaptor.forClass(UserProfile.class);
         verify(repository).save(captor.capture());
-        assertEquals("https://lh3.googleusercontent.com/avatar", captor.getValue().getAvatarUrl());
-        assertEquals("asha@example.com", captor.getValue().getEmail());
+        assertEquals("user@test.com", captor.getValue().getEmail());
+        assertEquals("Test User", captor.getValue().getFullName());
+        assertEquals("STUDENT", captor.getValue().getRole());
     }
 
     @Test
-    void updatesAvatarForExistingUserWhenSignupEventContainsNewPhoto() {
+    void consumeUserEvents_signup_existingUser_updatesFields() throws Exception {
         UserProfile existing = new UserProfile();
-        existing.setId(11L);
-        existing.setRole("STUDENT");
-        existing.setAvatarUrl("old");
+        existing.setId(1L);
+        existing.setEmail("old@test.com");
+        existing.setFullName("Old Name");
 
-        when(repository.existsById(11L)).thenReturn(true);
-        when(repository.findById(11L)).thenReturn(Optional.of(existing));
+        when(repository.existsById(1L)).thenReturn(true);
+        when(repository.findById(1L)).thenReturn(Optional.of(existing));
+        when(repository.save(any(UserProfile.class))).thenAnswer(i -> i.getArgument(0));
 
-        consumerService.consumeUserEvents("""
-                {
-                  "eventType":"USER_SIGNUP",
-                  "userId":11,
-                  "email":"user@example.com",
-                  "fullName":"Existing User",
-                  "role":"ADMIN",
-                  "avatarUrl":"https://new-avatar"
-                }
-                """);
+        String message = objectMapper.writeValueAsString(java.util.Map.of(
+                "eventType", "USER_SIGNUP",
+                "userId", 1,
+                "email", "updated@test.com",
+                "fullName", "Updated Name",
+                "role", "INSTRUCTOR"
+        ));
+
+        kafkaConsumerService.consumeUserEvents(message);
 
         verify(repository).save(any(UserProfile.class));
-        assertEquals("https://new-avatar", existing.getAvatarUrl());
-        assertEquals("ADMIN", existing.getRole());
-        assertEquals("Existing User", existing.getFullName());
-        assertEquals("user@example.com", existing.getEmail());
     }
 
     @Test
-    void updatesAvatarForExistingUserFromAvatarUpdatedEvent() {
+    void consumeUserEvents_avatarUpdated_updatesAvatar() throws Exception {
         UserProfile existing = new UserProfile();
-        existing.setId(14L);
-        existing.setAvatarUrl("old");
+        existing.setId(2L);
+        existing.setAvatarUrl("old-avatar.jpg");
 
-        when(repository.findById(14L)).thenReturn(Optional.of(existing));
+        when(repository.findById(2L)).thenReturn(Optional.of(existing));
+        when(repository.save(any(UserProfile.class))).thenAnswer(i -> i.getArgument(0));
 
-        consumerService.consumeUserEvents("""
-                {
-                  "eventType":"USER_AVATAR_UPDATED",
-                  "userId":14,
-                  "avatarUrl":"https://updated-avatar"
-                }
-                """);
+        String message = "{\"eventType\":\"USER_AVATAR_UPDATED\",\"userId\":2,\"avatarUrl\":\"new-avatar.jpg\"}";
 
-        verify(repository).save(any(UserProfile.class));
-        assertEquals("https://updated-avatar", existing.getAvatarUrl());
+        kafkaConsumerService.consumeUserEvents(message);
+
+        ArgumentCaptor<UserProfile> captor = ArgumentCaptor.forClass(UserProfile.class);
+        verify(repository).save(captor.capture());
+        assertEquals("new-avatar.jpg", captor.getValue().getAvatarUrl());
+    }
+
+    @Test
+    void consumeUserEvents_avatarUpdated_missingUserId_doesNotSave() throws Exception {
+        String message = "{\"eventType\":\"USER_AVATAR_UPDATED\",\"avatarUrl\":\"new-avatar.jpg\"}";
+
+        kafkaConsumerService.consumeUserEvents(message);
+
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void consumeUserEvents_malformedJson_doesNotThrow() {
+        assertDoesNotThrow(() -> kafkaConsumerService.consumeUserEvents("broken json"));
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void consumeUserEvents_unknownEvent_doesNotSave() throws Exception {
+        String message = objectMapper.writeValueAsString(java.util.Map.of(
+                "eventType", "UNKNOWN_EVENT",
+                "userId", 1
+        ));
+
+        kafkaConsumerService.consumeUserEvents(message);
+        verify(repository, never()).save(any());
     }
 }

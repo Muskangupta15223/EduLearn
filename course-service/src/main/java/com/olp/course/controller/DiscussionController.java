@@ -1,5 +1,6 @@
 package com.olp.course.controller;
 
+import com.olp.course.constant.CourseConstants;
 import com.olp.course.model.DiscussionReply;
 import com.olp.course.model.DiscussionThread;
 import com.olp.course.service.DiscussionService;
@@ -32,10 +33,9 @@ public class DiscussionController {
     Long userId,
     String userRole
   ) {
-    // Admins and Instructors bypass enrollment check
     if (
-      "ADMIN".equalsIgnoreCase(userRole) ||
-      "INSTRUCTOR".equalsIgnoreCase(userRole)
+      CourseConstants.ROLE_ADMIN.equalsIgnoreCase(userRole) ||
+      CourseConstants.ROLE_INSTRUCTOR.equalsIgnoreCase(userRole)
     ) {
       return true;
     }
@@ -76,12 +76,12 @@ public class DiscussionController {
     if (userId == null) {
       return ResponseEntity
         .status(HttpStatus.UNAUTHORIZED)
-        .body(Map.of("error", "Missing user id"));
+        .body(Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MISSING_USER_ID));
     }
     if (!checkEnrollmentOrAccess(courseId, userId, userRole)) {
       return ResponseEntity
         .status(HttpStatus.FORBIDDEN)
-        .body(Map.of("error", "You must be enrolled to post discussions"));
+        .body(Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MUST_BE_ENROLLED_TO_POST));
     }
 
     thread.setUserId(userId);
@@ -99,17 +99,17 @@ public class DiscussionController {
   ) {
     if (
       userId == null &&
-      !"ADMIN".equalsIgnoreCase(userRole) &&
-      !"INSTRUCTOR".equalsIgnoreCase(userRole)
+      !CourseConstants.ROLE_ADMIN.equalsIgnoreCase(userRole) &&
+      !CourseConstants.ROLE_INSTRUCTOR.equalsIgnoreCase(userRole)
     ) {
       return ResponseEntity
         .status(HttpStatus.UNAUTHORIZED)
-        .body(Map.of("error", "Missing user id"));
+        .body(Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MISSING_USER_ID));
     }
     if (!checkEnrollmentOrAccess(courseId, userId, userRole)) {
       return ResponseEntity
         .status(HttpStatus.FORBIDDEN)
-        .body(Map.of("error", "You must be enrolled to view discussions"));
+        .body(Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MUST_BE_ENROLLED_TO_VIEW));
     }
     return ResponseEntity.ok(discussionService.getThreadsByCourse(courseId));
   }
@@ -123,17 +123,17 @@ public class DiscussionController {
   ) {
     if (
       userId == null &&
-      !"ADMIN".equalsIgnoreCase(userRole) &&
-      !"INSTRUCTOR".equalsIgnoreCase(userRole)
+      !CourseConstants.ROLE_ADMIN.equalsIgnoreCase(userRole) &&
+      !CourseConstants.ROLE_INSTRUCTOR.equalsIgnoreCase(userRole)
     ) {
       return ResponseEntity
         .status(HttpStatus.UNAUTHORIZED)
-        .body(Map.of("error", "Missing user id"));
+        .body(Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MISSING_USER_ID));
     }
     if (!checkEnrollmentOrAccess(courseId, userId, userRole)) {
       return ResponseEntity
         .status(HttpStatus.FORBIDDEN)
-        .body(Map.of("error", "You must be enrolled to view discussions"));
+        .body(Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MUST_BE_ENROLLED_TO_VIEW));
     }
     return discussionService
       .getThreadById(threadId)
@@ -148,10 +148,10 @@ public class DiscussionController {
     @RequestHeader(value = "X-User-Id", required = false) Long userId,
     @RequestHeader(value = "X-User-Role", required = false) String userRole
   ) {
-    if (userId == null && !"ADMIN".equalsIgnoreCase(userRole)) {
+    if (userId == null && !CourseConstants.ROLE_ADMIN.equalsIgnoreCase(userRole)) {
       return ResponseEntity
         .status(HttpStatus.UNAUTHORIZED)
-        .body(Map.of("error", "Missing user id"));
+        .body(Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MISSING_USER_ID));
     }
     if (discussionService.deleteThread(threadId, userId, userRole)) {
       return ResponseEntity.ok().build();
@@ -170,12 +170,12 @@ public class DiscussionController {
     if (userId == null) {
       return ResponseEntity
         .status(HttpStatus.UNAUTHORIZED)
-        .body(Map.of("error", "Missing user id"));
+        .body(Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MISSING_USER_ID));
     }
     if (!checkEnrollmentOrAccess(courseId, userId, userRole)) {
       return ResponseEntity
         .status(HttpStatus.FORBIDDEN)
-        .body(Map.of("error", "You must be enrolled to reply to discussions"));
+        .body(Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MUST_BE_ENROLLED_TO_REPLY));
     }
 
     reply.setUserId(userId);
@@ -193,10 +193,10 @@ public class DiscussionController {
     @RequestHeader(value = "X-User-Id", required = false) Long userId,
     @RequestHeader(value = "X-User-Role", required = false) String userRole
   ) {
-    if (userId == null && !"ADMIN".equalsIgnoreCase(userRole)) {
+    if (userId == null && !CourseConstants.ROLE_ADMIN.equalsIgnoreCase(userRole)) {
       return ResponseEntity
         .status(HttpStatus.UNAUTHORIZED)
-        .body(Map.of("error", "Missing user id"));
+        .body(Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MISSING_USER_ID));
     }
     if (discussionService.deleteReply(replyId, userId, userRole)) {
       return ResponseEntity.ok().build();
@@ -263,12 +263,12 @@ public class DiscussionController {
     if (userId == null) {
       return ResponseEntity
         .status(HttpStatus.UNAUTHORIZED)
-        .body(Map.of("error", "Missing user id"));
+        .body(Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MISSING_USER_ID));
     }
     if (!checkEnrollmentOrAccess(courseId, userId, userRole)) {
       return ResponseEntity
         .status(HttpStatus.FORBIDDEN)
-        .body(Map.of("error", "You must be enrolled to vote on discussions"));
+        .body(Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MUST_BE_ENROLLED_TO_VOTE));
     }
     return ResponseEntity.ok(discussionService.upvoteReply(threadId, replyId));
   }

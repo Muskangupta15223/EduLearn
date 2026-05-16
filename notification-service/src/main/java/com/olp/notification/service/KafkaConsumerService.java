@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.olp.notification.model.NotificationLog;
 import com.olp.notification.repository.NotificationLogRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -16,6 +18,8 @@ import java.util.Map;
 
 @Service
 public class KafkaConsumerService {
+
+    private static final Logger log = LoggerFactory.getLogger(KafkaConsumerService.class);
 
     private final NotificationLogRepository repository;
     private final ObjectMapper objectMapper;
@@ -34,345 +38,257 @@ public class KafkaConsumerService {
     public void consumeUserEvents(String message) {
         try {
             JsonNode event = objectMapper.readTree(message);
-            String eventType = event.get("eventType").asText();
+            String eventType = event.path("eventType").asText();
 
             if ("USER_SIGNUP".equals(eventType)) {
-                String email = event.get("email").asText();
-                String fullName = event.get("fullName").asText();
-                Long userId = event.get("userId").asLong();
-
-                // 1. Send Welcome Email (async, non-blocking)
-                emailService.sendWelcomeEmail(email, fullName);
-
-                // 2. Log notification in Database
-                NotificationLog log = new NotificationLog();
-                log.setUserId(userId);
-                log.setType("welcome");
-                log.setTitle("Welcome to EduLearn");
-                log.setMessage("Hi " + fullName + ", welcome to our platform! Start exploring courses today.");
-                log.setSentAt(LocalDateTime.now());
-                log.setIsRead(false);
-                log.setRecipient(email);
-                repository.save(log);
-
+                handleUserSignup(event);
             } else if ("USER_LOGIN".equals(eventType)) {
-                Long userId = event.path("userId").asLong(0L);
-                String fullName = event.path("fullName").asText("there");
-
-                NotificationLog log = new NotificationLog();
-                log.setUserId(userId);
-                log.setType("login");
-                log.setTitle("Login Successful");
-                log.setMessage("Hi " + fullName + ", you just logged in to EduLearn.");
-                log.setSentAt(LocalDateTime.now());
-                log.setIsRead(false);
-                log.setRecipient(event.path("email").asText(null));
-                repository.save(log);
-
+                handleUserLogin(event);
             } else if ("PASSWORD_RESET".equals(eventType)) {
-                String email = event.get("email").asText();
-                String fullName = event.get("fullName").asText();
-                String resetLink = event.get("resetLink").asText();
-
-                // Send password reset email
-                emailService.sendPasswordResetEmail(email, fullName, resetLink);
+                handlePasswordReset(event);
             }
         } catch (Exception e) {
-            System.err.println("Error processing User Kafka message: " + e.getMessage());
+            log.error("Error processing User Kafka message: {}", e.getMessage(), e);
         }
+    }
+
+    private void handleUserSignup(JsonNode event) {
+        String email = event.path("email").asText();
+        String fullName = event.path("fullName").asText();
+        Long userId = event.path("userId").asLong();
+
+        emailService.sendWelcomeEmail(email, fullName);
+
+        NotificationLog log = createNotificationLog(userId, "welcome", "Welcome to EduLearn",
+                "Hi " + fullName + ", welcome to our platform! Start exploring courses today.");
+        log.setRecipient(email);
+        repository.save(log);
+    }
+
+    private void handleUserLogin(JsonNode event) {
+        Long userId = event.path("userId").asLong(0L);
+        String fullName = event.path("fullName").asText("there");
+        String email = event.path("email").asText(null);
+
+        NotificationLog log = createNotificationLog(userId, "login", "Login Successful",
+                "Hi " + fullName + ", you just logged in to EduLearn.");
+        log.setRecipient(email);
+        repository.save(log);
+    }
+
+    private void handlePasswordReset(JsonNode event) {
+        String email = event.path("email").asText();
+        String fullName = event.path("fullName").asText();
+        String resetLink = event.path("resetLink").asText();
+
+        emailService.sendPasswordResetEmail(email, fullName, resetLink);
     }
 
     @KafkaListener(topics = "course-events", groupId = "notification-group")
     public void consumeCourseEvents(String message) {
         try {
             JsonNode event = objectMapper.readTree(message);
-            String eventType = event.get("eventType").asText();
+            String eventType = event.path("eventType").asText();
 
-            if ("STUDENT_ENROLLED".equals(eventType)) {
-                Long courseId = event.get("courseId").asLong();
-                Long studentId = event.get("userId").asLong();
-
-                String courseName = event.path("courseTitle").asText("");
-                Long instructorId = event.hasNonNull("instructorId") ? event.get("instructorId").asLong() : null;
-                if (courseName.isBlank() || instructorId == null) {
-                    if (courseName.isBlank()) {
-                        courseName = "a course";
-                    }
-                    if (instructorId == null) {
-                        instructorId = 1L;
-                    }
-                    try {
-                        ResponseEntity<Map> response = restTemplate.getForEntity(
-                            "http://course-service/courses/" + courseId, Map.class);
-                        if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                            Map<String, Object> courseData = response.getBody();
-                            if (courseData.get("title") != null) courseName = courseData.get("title").toString();
-                            if (courseData.get("instructorId") != null) {
-                                instructorId = Long.valueOf(courseData.get("instructorId").toString());
-                            }
-                        }
-                    } catch (Exception e) {
-                        System.err.println("Failed to fetch course details for notification: " + e.getMessage());
-                    }
-                }
-
-                // Notify the student about successful enrollment
-                NotificationLog studentLog = new NotificationLog();
-                studentLog.setUserId(studentId);
-                studentLog.setType("enrollment");
-                studentLog.setTitle("Enrollment Confirmed!");
-                studentLog.setMessage("You have been successfully enrolled in \"" + courseName + "\". Start learning now!");
-                studentLog.setSentAt(LocalDateTime.now());
-                studentLog.setIsRead(false);
-                repository.save(studentLog);
-
-                // Notify instructor
-                NotificationLog instructorLog = new NotificationLog();
-                instructorLog.setUserId(instructorId);
-                instructorLog.setType("enrollment");
-                instructorLog.setTitle("New Student Enrollment");
-                instructorLog.setMessage("A new student has enrolled in \"" + courseName + "\" (Course ID: " + courseId + ")");
-                instructorLog.setSentAt(LocalDateTime.now());
-                instructorLog.setIsRead(false);
-                repository.save(instructorLog);
-            } else if ("CERTIFICATE_ISSUED".equals(eventType)) {
-                Long userId = event.get("userId").asLong();
-                String courseTitle = event.has("courseTitle") ? event.get("courseTitle").asText() : "your course";
-                String certificateNo = event.has("certificateNo") ? event.get("certificateNo").asText() : "";
-
-                NotificationLog certificateLog = new NotificationLog();
-                certificateLog.setUserId(userId);
-                certificateLog.setType("certificate");
-                certificateLog.setTitle("Certificate Ready");
-                certificateLog.setMessage("Your certificate for \"" + courseTitle + "\" is now available" +
-                        (certificateNo.isBlank() ? "." : " (Certificate No: " + certificateNo + ")."));
-                certificateLog.setSentAt(LocalDateTime.now());
-                certificateLog.setIsRead(false);
-                repository.save(certificateLog);
-            } else if ("COURSE_APPROVAL_REQUEST".equals(eventType)) {
-                String courseTitle = event.path("title").asText("Untitled Course");
-                String instructorName = event.path("instructorName").asText("an instructor");
-                String action = event.path("action").asText("SUBMITTED");
-                String timestampStr = event.path("timestamp").asText("");
-                
-                LocalDateTime sentAt = LocalDateTime.now();
-                if (!timestampStr.isEmpty()) {
-                    try {
-                        sentAt = LocalDateTime.parse(timestampStr);
-                    } catch (Exception ignored) {}
-                }
-
-                String title;
-                String adminMessage;
-                if ("CREATED".equalsIgnoreCase(action)) {
-                    title = "New Course Draft Created";
-                    adminMessage = "Instructor " + instructorName + " created the course \"" + courseTitle + "\". Review when ready for approval.";
-                } else if ("UPDATED".equalsIgnoreCase(action)) {
-                    title = "Course Draft Updated";
-                    adminMessage = "Instructor " + instructorName + " updated the course \"" + courseTitle + "\". Review the latest changes for approval.";
-                } else {
-                    title = "Course Review Requested";
-                    adminMessage = "Instructor " + instructorName + " has submitted the course \"" + courseTitle + "\" for review.";
-                }
-
-                for (Long adminId : resolveAdminUserIds()) {
-                    NotificationLog adminLog = new NotificationLog();
-                    adminLog.setUserId(adminId);
-                    adminLog.setType("COURSE_APPROVAL_REQUEST");
-                    adminLog.setTitle(title);
-                    adminLog.setMessage(adminMessage);
-                    adminLog.setSentAt(sentAt);
-                    adminLog.setIsRead(false);
-                    repository.save(adminLog);
-                }
-            } else if ("COURSE_APPROVED".equals(eventType) || "COURSE_REJECTED".equals(eventType) || "COURSE_UNPUBLISHED".equals(eventType)) {
-                Long instructorId = event.path("instructorId").asLong(0L);
-                String courseTitle = event.path("title").asText("your course");
-                String reviewComment = event.path("reviewComment").asText("");
-
-                NotificationLog instructorLog = new NotificationLog();
-                instructorLog.setUserId(instructorId);
-                instructorLog.setType("course");
-                if ("COURSE_APPROVED".equals(eventType)) {
-                    instructorLog.setTitle("Course Approved");
-                    instructorLog.setMessage("\"" + courseTitle + "\" has been approved and published.");
-                } else if ("COURSE_REJECTED".equals(eventType)) {
-                    instructorLog.setTitle("Course Needs Changes");
-                    instructorLog.setMessage("\"" + courseTitle + "\" was rejected. " + reviewComment);
-                } else {
-                    instructorLog.setTitle("Course Unpublished");
-                    instructorLog.setMessage("\"" + courseTitle + "\" was moved back to draft.");
-                }
-                instructorLog.setSentAt(LocalDateTime.now());
-                instructorLog.setIsRead(false);
-                repository.save(instructorLog);
-
-            } else if ("QUIZ_CREATED".equals(eventType) || "ASSIGNMENT_CREATED".equals(eventType)) {
-                Long courseId = event.get("courseId").asLong();
-
-                // Fetch course title from course-service
-                String courseName = event.path("courseTitle").asText("");
-                if (courseName.isBlank()) {
-                    courseName = "a course";
-                    try {
-                        ResponseEntity<Map> courseResponse = restTemplate.getForEntity(
-                            "http://course-service/courses/" + courseId, Map.class);
-                        if (courseResponse.getStatusCode().is2xxSuccessful() && courseResponse.getBody() != null) {
-                            Object titleObj = courseResponse.getBody().get("title");
-                            if (titleObj != null) courseName = titleObj.toString();
-                        }
-                    } catch (Exception e) {
-                        System.err.println("Failed to fetch course title for notification: " + e.getMessage());
-                    }
-                }
-
-                // Fetch enrolled students from enrollment-service
-                java.util.List<Long> enrolledStudentIds = new java.util.ArrayList<>();
-                try {
-                    ResponseEntity<java.util.List> enrollResponse = restTemplate.getForEntity(
-                        "http://enrollment-service/enrollments/course/" + courseId, java.util.List.class);
-                    if (enrollResponse.getStatusCode().is2xxSuccessful() && enrollResponse.getBody() != null) {
-                        for (Object enrollObj : enrollResponse.getBody()) {
-                            if (enrollObj instanceof Map) {
-                                Map<?, ?> enrollMap = (Map<?, ?>) enrollObj;
-                                Object statusObj = enrollMap.get("status");
-                                Object userIdObj = enrollMap.get("userId");
-                                if (userIdObj != null && ("ACTIVE".equals(statusObj) || "COMPLETED".equals(statusObj))) {
-                                    enrolledStudentIds.add(Long.valueOf(userIdObj.toString()));
-                                }
-                            }
-                        }
-                    }
-                } catch (Exception e) {
-                    System.err.println("Failed to fetch enrollments for notification: " + e.getMessage());
-                }
-
-                // Create notification for each enrolled student
-                if ("QUIZ_CREATED".equals(eventType)) {
-                    String quizTitle = event.path("quizTitle").asText("a new quiz");
-                    for (Long studentId : enrolledStudentIds) {
-                        NotificationLog studentLog = new NotificationLog();
-                        studentLog.setUserId(studentId);
-                        studentLog.setType("quiz");
-                        studentLog.setTitle("New Quiz Available");
-                        studentLog.setMessage("A new quiz \"" + quizTitle + "\" has been added to \"" + courseName + "\". Test your knowledge now!");
-                        studentLog.setSentAt(LocalDateTime.now());
-                        studentLog.setIsRead(false);
-                        repository.save(studentLog);
-                    }
-                } else {
-                    String assignmentTitle = event.path("assignmentTitle").asText("a new assignment");
-                    String dueDate = event.has("dueDate") && !event.get("dueDate").isNull() ? event.get("dueDate").asText() : null;
-                    for (Long studentId : enrolledStudentIds) {
-                        NotificationLog studentLog = new NotificationLog();
-                        studentLog.setUserId(studentId);
-                        studentLog.setType("assignment");
-                        studentLog.setTitle("New Assignment Posted");
-                        String msg = "A new assignment \"" + assignmentTitle + "\" has been added to \"" + courseName + "\".";
-                        if (dueDate != null) {
-                            msg += " Deadline: " + dueDate + ".";
-                        }
-                        studentLog.setMessage(msg);
-                        studentLog.setSentAt(LocalDateTime.now());
-                        studentLog.setIsRead(false);
-                        repository.save(studentLog);
-                    }
-                }
-
-                System.out.println("Notified " + enrolledStudentIds.size() + " enrolled students about " + eventType);
-            } else if ("COURSE_CONTENT_ADDED".equals(eventType)) {
-                Long courseId = event.get("courseId").asLong();
-                String courseName = event.path("courseTitle").asText("your course");
-                String contentType = event.path("contentType").asText("content");
-                String contentTitle = event.path("contentTitle").asText("new content");
-
-                List<Long> enrolledStudentIds = new ArrayList<>();
-                try {
-                    ResponseEntity<List> enrollResponse = restTemplate.getForEntity(
-                            "http://enrollment-service/enrollments/course/" + courseId, List.class);
-                    if (enrollResponse.getStatusCode().is2xxSuccessful() && enrollResponse.getBody() != null) {
-                        for (Object enrollObj : enrollResponse.getBody()) {
-                            if (enrollObj instanceof Map<?, ?> enrollMap) {
-                                Object statusObj = enrollMap.get("status");
-                                Object userIdObj = enrollMap.get("userId");
-                                boolean active = statusObj != null
-                                        && ("ACTIVE".equalsIgnoreCase(statusObj.toString())
-                                        || "COMPLETED".equalsIgnoreCase(statusObj.toString()));
-                                if (userIdObj != null && active) {
-                                    enrolledStudentIds.add(Long.valueOf(userIdObj.toString()));
-                                }
-                            }
-                        }
-                    }
-                } catch (Exception e) {
-                    System.err.println("Failed to fetch enrollments for content notification: " + e.getMessage());
-                }
-
-                String normalizedType = contentType == null || contentType.isBlank() ? "content" : contentType.toLowerCase();
-                String displayType = normalizedType.substring(0, 1).toUpperCase() + normalizedType.substring(1);
-                for (Long studentId : enrolledStudentIds) {
-                    NotificationLog studentLog = new NotificationLog();
-                    studentLog.setUserId(studentId);
-                    studentLog.setType(normalizedType);
-                    studentLog.setTitle("New " + displayType + " Added");
-                    studentLog.setMessage("A new " + normalizedType + " \"" + contentTitle + "\" has been added to \"" + courseName + "\".");
-                    studentLog.setSentAt(LocalDateTime.now());
-                    studentLog.setIsRead(false);
-                    repository.save(studentLog);
-                }
-
-                System.out.println("Notified " + enrolledStudentIds.size() + " enrolled students about " + eventType);
-            } else if ("QUIZ_RESULT".equals(eventType)) {
-                Long userId = event.path("userId").asLong(0L);
-                String quizTitle = event.path("quizTitle").asText("your quiz");
-                int score = event.path("score").asInt(0);
-                int maxScore = event.path("maxScore").asInt(0);
-                boolean passed = event.path("passed").asBoolean(false);
-                boolean timedOut = event.path("timedOut").asBoolean(false);
-
-                NotificationLog quizResultLog = new NotificationLog();
-                quizResultLog.setUserId(userId);
-                quizResultLog.setType("quiz-result");
-                quizResultLog.setTitle(passed ? "Quiz Passed" : "Quiz Result Available");
-                String notificationMessage = "Your result for \"" + quizTitle + "\" is ready. Score: " + score + "/" + maxScore + ".";
-                if (passed) {
-                    notificationMessage += " You passed.";
-                } else {
-                    notificationMessage += " You did not reach the passing score yet.";
-                }
-                if (timedOut) {
-                    notificationMessage += " The attempt was auto-submitted after the time limit.";
-                }
-                quizResultLog.setMessage(notificationMessage);
-                quizResultLog.setSentAt(LocalDateTime.now());
-                quizResultLog.setIsRead(false);
-                repository.save(quizResultLog);
-            } else if ("ASSIGNMENT_GRADED".equals(eventType)) {
-                Long userId = event.path("userId").asLong(0L);
-                String assignmentTitle = event.path("assignmentTitle").asText("your assignment");
-                String score = event.path("score").asText("");
-                String maxScore = event.path("maxScore").asText("");
-                String feedback = event.path("feedback").asText("");
-
-                NotificationLog assignmentLog = new NotificationLog();
-                assignmentLog.setUserId(userId);
-                assignmentLog.setType("assignment");
-                assignmentLog.setTitle("Assignment Graded");
-                String notificationMessage = "Your assignment \"" + assignmentTitle + "\" has been graded.";
-                if (!score.isBlank()) {
-                    notificationMessage += " Score: " + score + "/" + maxScore + ".";
-                }
-                if (!feedback.isBlank()) {
-                    notificationMessage += " Feedback: " + feedback;
-                }
-                assignmentLog.setMessage(notificationMessage);
-                assignmentLog.setSentAt(LocalDateTime.now());
-                assignmentLog.setIsRead(false);
-                repository.save(assignmentLog);
+            switch (eventType) {
+                case "STUDENT_ENROLLED":
+                    handleStudentEnrolled(event);
+                    break;
+                case "CERTIFICATE_ISSUED":
+                    handleCertificateIssued(event);
+                    break;
+                case "COURSE_APPROVAL_REQUEST":
+                    handleCourseApprovalRequest(event);
+                    break;
+                case "COURSE_APPROVED":
+                case "COURSE_REJECTED":
+                case "COURSE_UNPUBLISHED":
+                    handleCourseModeration(event, eventType);
+                    break;
+                case "QUIZ_CREATED":
+                case "ASSIGNMENT_CREATED":
+                    handleContentCreated(event, eventType);
+                    break;
+                case "COURSE_CONTENT_ADDED":
+                    handleCourseContentAdded(event);
+                    break;
+                case "QUIZ_RESULT":
+                    handleQuizResult(event);
+                    break;
+                case "ASSIGNMENT_GRADED":
+                    handleAssignmentGraded(event);
+                    break;
+                default:
+                    break;
             }
         } catch (Exception e) {
-            System.err.println("Error processing Course Kafka message: " + e.getMessage());
+            log.error("Error processing Course Kafka message: {}", e.getMessage(), e);
         }
+    }
+
+    private void handleStudentEnrolled(JsonNode event) {
+        Long courseId = event.path("courseId").asLong();
+        Long studentId = event.path("userId").asLong();
+
+        String courseName = event.path("courseTitle").asText("");
+        Long instructorId = event.hasNonNull("instructorId") ? event.path("instructorId").asLong() : null;
+
+        if (courseName.isBlank() || instructorId == null) {
+            if (courseName.isBlank()) courseName = "a course";
+            if (instructorId == null) instructorId = 1L;
+            try {
+                ResponseEntity<Map> response = restTemplate.getForEntity("http://course-service/courses/" + courseId, Map.class);
+                if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                    Map<String, Object> courseData = response.getBody();
+                    if (courseData.get("title") != null) courseName = courseData.get("title").toString();
+                    if (courseData.get("instructorId") != null) {
+                        instructorId = Long.valueOf(courseData.get("instructorId").toString());
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Failed to fetch course details for notification: {}", e.getMessage());
+            }
+        }
+
+        NotificationLog studentLog = createNotificationLog(studentId, "enrollment", "Enrollment Confirmed!",
+                "You have been successfully enrolled in \"" + courseName + "\". Start learning now!");
+        repository.save(studentLog);
+
+        NotificationLog instructorLog = createNotificationLog(instructorId, "enrollment", "New Student Enrollment",
+                "A new student has enrolled in \"" + courseName + "\" (Course ID: " + courseId + ")");
+        repository.save(instructorLog);
+    }
+
+    private void handleCertificateIssued(JsonNode event) {
+        Long userId = event.path("userId").asLong();
+        String courseTitle = event.path("courseTitle").asText("your course");
+        String certificateNo = event.path("certificateNo").asText("");
+
+        String message = "Your certificate for \"" + courseTitle + "\" is now available" +
+                (certificateNo.isBlank() ? "." : " (Certificate No: " + certificateNo + ").");
+        NotificationLog log = createNotificationLog(userId, "certificate", "Certificate Ready", message);
+        repository.save(log);
+    }
+
+    private void handleCourseApprovalRequest(JsonNode event) {
+        String courseTitle = event.path("title").asText("Untitled Course");
+        String instructorName = event.path("instructorName").asText("an instructor");
+        String action = event.path("action").asText("SUBMITTED");
+        String timestampStr = event.path("timestamp").asText("");
+
+        LocalDateTime sentAt = LocalDateTime.now();
+        if (!timestampStr.isEmpty()) {
+            try { sentAt = LocalDateTime.parse(timestampStr); } catch (Exception ignored) {}
+        }
+
+        String title;
+        String adminMessage;
+        if ("CREATED".equalsIgnoreCase(action)) {
+            title = "New Course Draft Created";
+            adminMessage = "Instructor " + instructorName + " created the course \"" + courseTitle + "\". Review when ready for approval.";
+        } else if ("UPDATED".equalsIgnoreCase(action)) {
+            title = "Course Draft Updated";
+            adminMessage = "Instructor " + instructorName + " updated the course \"" + courseTitle + "\". Review the latest changes for approval.";
+        } else {
+            title = "Course Review Requested";
+            adminMessage = "Instructor " + instructorName + " has submitted the course \"" + courseTitle + "\" for review.";
+        }
+
+        for (Long adminId : resolveAdminUserIds()) {
+            NotificationLog adminLog = createNotificationLog(adminId, "COURSE_APPROVAL_REQUEST", title, adminMessage);
+            adminLog.setSentAt(sentAt);
+            repository.save(adminLog);
+        }
+    }
+
+    private void handleCourseModeration(JsonNode event, String eventType) {
+        Long instructorId = event.path("instructorId").asLong(0L);
+        String courseTitle = event.path("title").asText("your course");
+        String reviewComment = event.path("reviewComment").asText("");
+
+        String title;
+        String message;
+        if ("COURSE_APPROVED".equals(eventType)) {
+            title = "Course Approved";
+            message = "\"" + courseTitle + "\" has been approved and published.";
+        } else if ("COURSE_REJECTED".equals(eventType)) {
+            title = "Course Needs Changes";
+            message = "\"" + courseTitle + "\" was rejected. " + reviewComment;
+        } else {
+            title = "Course Unpublished";
+            message = "\"" + courseTitle + "\" was moved back to draft.";
+        }
+
+        NotificationLog log = createNotificationLog(instructorId, "course", title, message);
+        repository.save(log);
+    }
+
+    private void handleContentCreated(JsonNode event, String eventType) {
+        Long courseId = event.path("courseId").asLong();
+        String courseName = fetchCourseTitle(event, courseId);
+        List<Long> enrolledStudentIds = fetchEnrolledStudents(courseId);
+
+        if ("QUIZ_CREATED".equals(eventType)) {
+            String quizTitle = event.path("quizTitle").asText("a new quiz");
+            String message = "A new quiz \"" + quizTitle + "\" has been added to \"" + courseName + "\". Test your knowledge now!";
+            for (Long studentId : enrolledStudentIds) {
+                repository.save(createNotificationLog(studentId, "quiz", "New Quiz Available", message));
+            }
+        } else {
+            String assignmentTitle = event.path("assignmentTitle").asText("a new assignment");
+            String dueDate = event.path("dueDate").isNull() ? null : event.path("dueDate").asText();
+            String msg = "A new assignment \"" + assignmentTitle + "\" has been added to \"" + courseName + "\".";
+            if (dueDate != null) msg += " Deadline: " + dueDate + ".";
+            for (Long studentId : enrolledStudentIds) {
+                repository.save(createNotificationLog(studentId, "assignment", "New Assignment Posted", msg));
+            }
+        }
+    }
+
+    private void handleCourseContentAdded(JsonNode event) {
+        Long courseId = event.path("courseId").asLong();
+        String courseName = event.path("courseTitle").asText("your course");
+        String contentType = event.path("contentType").asText("content");
+        String contentTitle = event.path("contentTitle").asText("new content");
+
+        List<Long> enrolledStudentIds = fetchEnrolledStudents(courseId);
+        String normalizedType = contentType.isBlank() ? "content" : contentType.toLowerCase();
+        String displayType = normalizedType.substring(0, 1).toUpperCase() + normalizedType.substring(1);
+        String message = "A new " + normalizedType + " \"" + contentTitle + "\" has been added to \"" + courseName + "\".";
+
+        for (Long studentId : enrolledStudentIds) {
+            repository.save(createNotificationLog(studentId, normalizedType, "New " + displayType + " Added", message));
+        }
+    }
+
+    private void handleQuizResult(JsonNode event) {
+        Long userId = event.path("userId").asLong(0L);
+        String quizTitle = event.path("quizTitle").asText("your quiz");
+        int score = event.path("score").asInt(0);
+        int maxScore = event.path("maxScore").asInt(0);
+        boolean passed = event.path("passed").asBoolean(false);
+        boolean timedOut = event.path("timedOut").asBoolean(false);
+
+        String title = passed ? "Quiz Passed" : "Quiz Result Available";
+        String message = "Your result for \"" + quizTitle + "\" is ready. Score: " + score + "/" + maxScore + ".";
+        message += passed ? " You passed." : " You did not reach the passing score yet.";
+        if (timedOut) message += " The attempt was auto-submitted after the time limit.";
+
+        repository.save(createNotificationLog(userId, "quiz-result", title, message));
+    }
+
+    private void handleAssignmentGraded(JsonNode event) {
+        Long userId = event.path("userId").asLong(0L);
+        String assignmentTitle = event.path("assignmentTitle").asText("your assignment");
+        String score = event.path("score").asText("");
+        String maxScore = event.path("maxScore").asText("");
+        String feedback = event.path("feedback").asText("");
+
+        String message = "Your assignment \"" + assignmentTitle + "\" has been graded.";
+        if (!score.isBlank()) message += " Score: " + score + "/" + maxScore + ".";
+        if (!feedback.isBlank()) message += " Feedback: " + feedback;
+
+        repository.save(createNotificationLog(userId, "assignment", "Assignment Graded", message));
     }
 
     @KafkaListener(topics = "payment-events", groupId = "notification-group")
@@ -385,61 +301,74 @@ public class KafkaConsumerService {
             String amount = event.path("amount").asText("");
             String currency = event.path("currency").asText("INR");
 
-            String courseName = "your course";
-            try {
-                ResponseEntity<Map> response = restTemplate.getForEntity(
-                        "http://course-service/courses/" + courseId,
-                        Map.class
-                );
-                if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                    Object title = response.getBody().get("title");
-                    if (title != null) {
-                        courseName = title.toString();
-                    }
-                }
-            } catch (Exception ignored) {
-            }
+            String courseName = fetchCourseTitle(event, courseId);
 
             if ("PAYMENT_SUCCESS".equals(eventType)) {
-                NotificationLog log = new NotificationLog();
-                log.setUserId(userId);
-                log.setType("payment");
-                log.setTitle("Payment Successful");
-                log.setMessage("Your payment of " + currency + " " + amount + " for \"" + courseName + "\" was successful.");
-                log.setSentAt(LocalDateTime.now());
-                log.setIsRead(false);
-                repository.save(log);
+                String msg = "Your payment of " + currency + " " + amount + " for \"" + courseName + "\" was successful.";
+                repository.save(createNotificationLog(userId, "payment", "Payment Successful", msg));
             } else if ("PAYMENT_REFUNDED".equals(eventType)) {
-                NotificationLog log = new NotificationLog();
-                log.setUserId(userId);
-                log.setType("payment");
-                log.setTitle("Refund Processed");
-                log.setMessage("Your refund for \"" + courseName + "\" has been processed.");
-                log.setSentAt(LocalDateTime.now());
-                log.setIsRead(false);
-                repository.save(log);
+                String msg = "Your refund for \"" + courseName + "\" has been processed.";
+                repository.save(createNotificationLog(userId, "payment", "Refund Processed", msg));
             } else if (eventType.startsWith("SUBSCRIPTION_")) {
-                String plan = event.path("plan").asText("subscription");
-                NotificationLog log = new NotificationLog();
-                log.setUserId(userId);
-                log.setType("subscription");
-                if (eventType.endsWith("_ACTIVATED")) {
-                    log.setTitle("Subscription Activated");
-                    log.setMessage("Your " + plan + " subscription is now active.");
-                } else if ("SUBSCRIPTION_CANCELLED".equals(eventType)) {
-                    log.setTitle("Subscription Cancelled");
-                    log.setMessage("Your " + plan + " subscription has been cancelled.");
-                } else {
-                    log.setTitle("Subscription Updated");
-                    log.setMessage("Your subscription status changed to " + event.path("status").asText("UPDATED") + ".");
-                }
-                log.setSentAt(LocalDateTime.now());
-                log.setIsRead(false);
-                repository.save(log);
+                handleSubscriptionEvents(event, eventType, userId);
             }
         } catch (Exception e) {
-            System.err.println("Error processing Payment Kafka message: " + e.getMessage());
+            log.error("Error processing Payment Kafka message: {}", e.getMessage(), e);
         }
+    }
+
+    private void handleSubscriptionEvents(JsonNode event, String eventType, Long userId) {
+        String plan = event.path("plan").asText("subscription");
+        String title;
+        String message;
+
+        if (eventType.endsWith("_ACTIVATED")) {
+            title = "Subscription Activated";
+            message = "Your " + plan + " subscription is now active.";
+        } else if ("SUBSCRIPTION_CANCELLED".equals(eventType)) {
+            title = "Subscription Cancelled";
+            message = "Your " + plan + " subscription has been cancelled.";
+        } else {
+            title = "Subscription Updated";
+            message = "Your subscription status changed to " + event.path("status").asText("UPDATED") + ".";
+        }
+
+        repository.save(createNotificationLog(userId, "subscription", title, message));
+    }
+
+    private String fetchCourseTitle(JsonNode event, Long courseId) {
+        String courseName = event.path("courseTitle").asText("");
+        if (courseName.isBlank() && courseId > 0) {
+            courseName = "a course";
+            try {
+                ResponseEntity<Map> response = restTemplate.getForEntity("http://course-service/courses/" + courseId, Map.class);
+                if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                    Object titleObj = response.getBody().get("title");
+                    if (titleObj != null) courseName = titleObj.toString();
+                }
+            } catch (Exception ignored) {}
+        }
+        return courseName;
+    }
+
+    private List<Long> fetchEnrolledStudents(Long courseId) {
+        List<Long> enrolledStudentIds = new ArrayList<>();
+        try {
+            ResponseEntity<List> response = restTemplate.getForEntity("http://enrollment-service/enrollments/course/" + courseId, List.class);
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                for (Object enrollObj : response.getBody()) {
+                    if (enrollObj instanceof Map<?, ?> enrollMap) {
+                        Object statusObj = enrollMap.get("status");
+                        Object userIdObj = enrollMap.get("userId");
+                        boolean active = statusObj != null && ("ACTIVE".equalsIgnoreCase(statusObj.toString()) || "COMPLETED".equalsIgnoreCase(statusObj.toString()));
+                        if (userIdObj != null && active) {
+                            enrolledStudentIds.add(Long.valueOf(userIdObj.toString()));
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        return enrolledStudentIds;
     }
 
     private List<Long> resolveAdminUserIds() {
@@ -461,8 +390,18 @@ public class KafkaConsumerService {
             }
             return adminIds.isEmpty() ? List.of(1L) : adminIds;
         } catch (Exception ex) {
-            System.err.println("Failed to resolve admin users for notification: " + ex.getMessage());
             return List.of(1L);
         }
+    }
+
+    private NotificationLog createNotificationLog(Long userId, String type, String title, String message) {
+        NotificationLog log = new NotificationLog();
+        log.setUserId(userId);
+        log.setType(type);
+        log.setTitle(title);
+        log.setMessage(message);
+        log.setSentAt(LocalDateTime.now());
+        log.setIsRead(false);
+        return log;
     }
 }

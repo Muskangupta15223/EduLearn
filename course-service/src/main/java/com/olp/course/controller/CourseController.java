@@ -1,6 +1,8 @@
 package com.olp.course.controller;
 
 import com.olp.course.model.Course;
+import com.olp.course.dto.CourseDto;
+import com.olp.course.dto.CourseMapper;
 import com.olp.course.service.CourseService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -26,71 +28,72 @@ public class CourseController {
     }
 
     @PostMapping
-    public ResponseEntity<Course> create(
+    public ResponseEntity<CourseDto> create(
             @RequestBody Course course,
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
             @RequestHeader(value = "X-User-Role", required = false) String role,
             @RequestHeader(value = "X-User-Name", required = false) String userName
     ) {
-        return ResponseEntity.ok(courseService.createCourse(course, userId, userName, role));
+        return ResponseEntity.ok(CourseMapper.toDto(courseService.createCourse(course, userId, userName, role)));
     }
 
     @GetMapping
-    public ResponseEntity<List<Course>> getAll(
+    public ResponseEntity<List<CourseDto>> getAll(
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
             @RequestHeader(value = "X-User-Role", required = false) String role
     ) {
-        return ResponseEntity.ok(courseService.getAllCourses(userId, role));
+        return ResponseEntity.ok(CourseMapper.toDtoList(courseService.getAllCourses(userId, role)));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<Course> getById(
+    public ResponseEntity<CourseDto> getById(
             @PathVariable Long id,
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
             @RequestHeader(value = "X-User-Role", required = false) String role
     ) {
         return courseService.getCourseById(id, userId, role)
+                .map(CourseMapper::toDto)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @GetMapping("/published")
-    public ResponseEntity<List<Course>> getPublished(
+    public ResponseEntity<List<CourseDto>> getPublished(
             @RequestParam(value = "category", required = false) String category,
             @RequestParam(value = "level", required = false) String level,
             @RequestParam(value = "instructorId", required = false) Long instructorId,
             @RequestParam(value = "language", required = false) String language,
             @RequestParam(value = "q", required = false) String query) {
-        return ResponseEntity.ok(courseService.getPublishedCourses(category, level, instructorId, language, query));
+        return ResponseEntity.ok(CourseMapper.toDtoList(courseService.getPublishedCourses(category, level, instructorId, language, query)));
     }
 
     @GetMapping("/featured")
-    public ResponseEntity<List<Course>> getFeatured() {
-        return ResponseEntity.ok(courseService.getFeaturedCourses());
+    public ResponseEntity<List<CourseDto>> getFeatured() {
+        return ResponseEntity.ok(CourseMapper.toDtoList(courseService.getFeaturedCourses()));
     }
 
     @GetMapping("/category/{cat}")
-    public ResponseEntity<List<Course>> getByCategory(@PathVariable String cat) {
-        return ResponseEntity.ok(courseService.getCoursesByCategory(cat));
+    public ResponseEntity<List<CourseDto>> getByCategory(@PathVariable String cat) {
+        return ResponseEntity.ok(CourseMapper.toDtoList(courseService.getCoursesByCategory(cat)));
     }
 
     @GetMapping("/search")
-    public ResponseEntity<List<Course>> search(@RequestParam("q") String query) {
-        return ResponseEntity.ok(courseService.searchCourses(query));
+    public ResponseEntity<List<CourseDto>> search(@RequestParam("q") String query) {
+        return ResponseEntity.ok(CourseMapper.toDtoList(courseService.searchCourses(query)));
     }
 
     @GetMapping("/me")
-    public ResponseEntity<List<Course>> getMyCreated(
+    public ResponseEntity<List<CourseDto>> getMyCreated(
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
             @RequestHeader(value = "X-User-Role", required = false) String role
     ) {
-        return ResponseEntity.ok(courseService.getMyCreatedCourses(userId, role));
+        return ResponseEntity.ok(CourseMapper.toDtoList(courseService.getMyCreatedCourses(userId, role)));
     }
 
     @GetMapping("/pending")
-    public ResponseEntity<List<Course>> getPending(
+    public ResponseEntity<List<CourseDto>> getPending(
             @RequestHeader(value = "X-User-Role", required = false) String role) {
-        return ResponseEntity.ok(courseService.getPendingCourses(role));
+        return ResponseEntity.ok(CourseMapper.toDtoList(courseService.getPendingCourses(role)));
     }
 
     @GetMapping("/{id}/stats")
@@ -114,58 +117,63 @@ public class CourseController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<Course> update(
+    public ResponseEntity<CourseDto> update(
             @PathVariable Long id,
             @RequestBody Course courseDetails,
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
             @RequestHeader(value = "X-User-Role", required = false) String role
     ) {
         return courseService.updateCourse(id, courseDetails, userId, role)
+                .map(CourseMapper::toDto)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @PutMapping("/{id}/publish")
-    public ResponseEntity<Course> publish(
+    public ResponseEntity<CourseDto> publish(
             @PathVariable Long id,
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
             @RequestHeader(value = "X-User-Role", required = false) String role
     ) {
         return courseService.publishCourse(id, userId, role)
+                .map(CourseMapper::toDto)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @PutMapping("/{id}/approve")
-    public ResponseEntity<Course> approve(
+    public ResponseEntity<CourseDto> approve(
             @PathVariable Long id,
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
             @RequestHeader(value = "X-User-Role", required = false) String role
     ) {
         return courseService.approveCourse(id, userId, role)
+                .map(CourseMapper::toDto)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @PutMapping("/{id}/reject")
-    public ResponseEntity<Course> reject(
+    public ResponseEntity<CourseDto> reject(
             @PathVariable Long id,
             @RequestBody java.util.Map<String, String> body,
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
             @RequestHeader(value = "X-User-Role", required = false) String role
     ) {
         return courseService.rejectCourse(id, body.get("reason"), userId, role)
+                .map(CourseMapper::toDto)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @PutMapping("/{id}/unpublish")
-    public ResponseEntity<Course> unpublish(
+    public ResponseEntity<CourseDto> unpublish(
             @PathVariable Long id,
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
             @RequestHeader(value = "X-User-Role", required = false) String role
     ) {
         return courseService.unpublishCourse(id, userId, role)
+                .map(CourseMapper::toDto)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
@@ -183,7 +191,7 @@ public class CourseController {
     }
 
     @PostMapping("/{id}/thumbnail")
-    public ResponseEntity<Course> uploadThumbnail(
+    public ResponseEntity<CourseDto> uploadThumbnail(
             @PathVariable Long id,
             @RequestParam("file") MultipartFile file,
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
@@ -197,7 +205,7 @@ public class CourseController {
         return courseService.getCourseById(id, userId, role)
                 .map(course -> {
                     course.setThumbnail(fileDownloadUri);
-                    return ResponseEntity.ok(courseService.updateCourse(id, course, userId, role).get());
+                    return ResponseEntity.ok(CourseMapper.toDto(courseService.updateCourse(id, course, userId, role).get()));
                 })
                 .orElse(ResponseEntity.notFound().build());
     }

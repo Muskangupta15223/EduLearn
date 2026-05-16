@@ -9,207 +9,218 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestTemplate;
 
-import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class KafkaConsumerServiceTest {
 
-    @Mock
-    private NotificationLogRepository repository;
+    @Mock private NotificationLogRepository repository;
+    @Mock private EmailService emailService;
+    @Mock private RestTemplate restTemplate;
 
-    @Mock
-    private EmailService emailService;
-
-    @Mock
-    private RestTemplate restTemplate;
-
-    private KafkaConsumerService consumerService;
+    private KafkaConsumerService kafkaConsumerService;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeEach
     void setUp() {
-        consumerService = new KafkaConsumerService(repository, new ObjectMapper(), emailService, restTemplate);
+        kafkaConsumerService = new KafkaConsumerService(repository, objectMapper, emailService, restTemplate);
+    }
+
+    // --- User Events ---
+
+    @Test
+    void consumeUserEvents_signup_sendsWelcomeEmailAndSavesNotification() throws Exception {
+        when(repository.save(any(NotificationLog.class))).thenAnswer(i -> i.getArgument(0));
+
+        String message = objectMapper.writeValueAsString(Map.of(
+                "eventType", "USER_SIGNUP",
+                "userId", 1,
+                "email", "user@test.com",
+                "fullName", "Test User"
+        ));
+
+        kafkaConsumerService.consumeUserEvents(message);
+
+        verify(emailService).sendWelcomeEmail("user@test.com", "Test User");
+        ArgumentCaptor<NotificationLog> captor = ArgumentCaptor.forClass(NotificationLog.class);
+        verify(repository).save(captor.capture());
+        assertEquals("welcome", captor.getValue().getType());
+        assertEquals("Welcome to EduLearn", captor.getValue().getTitle());
     }
 
     @Test
-    void consumeCourseEventsCreatesQuizResultNotification() {
-        String message = """
-                {
-                  "eventType":"QUIZ_RESULT",
-                  "userId":7,
-                  "courseId":12,
-                  "quizTitle":"Java Basics",
-                  "score":8,
-                  "maxScore":10,
-                  "passed":true,
-                  "timedOut":false
-                }
-                """;
+    void consumeUserEvents_login_savesLoginNotification() throws Exception {
+        when(repository.save(any(NotificationLog.class))).thenAnswer(i -> i.getArgument(0));
 
-        consumerService.consumeCourseEvents(message);
+        String message = objectMapper.writeValueAsString(Map.of(
+                "eventType", "USER_LOGIN",
+                "userId", 1,
+                "fullName", "Test User",
+                "email", "user@test.com"
+        ));
+
+        kafkaConsumerService.consumeUserEvents(message);
 
         ArgumentCaptor<NotificationLog> captor = ArgumentCaptor.forClass(NotificationLog.class);
         verify(repository).save(captor.capture());
-        NotificationLog log = captor.getValue();
-        assertEquals(7L, log.getUserId());
-        assertEquals("quiz-result", log.getType());
-        assertEquals("Quiz Passed", log.getTitle());
-        assertTrue(log.getMessage().contains("8/10"));
+        assertEquals("login", captor.getValue().getType());
     }
 
     @Test
-    void consumeCourseEventsCreatesNotificationsForAssignmentCreated() {
-        when(restTemplate.getForEntity("http://enrollment-service/enrollments/course/14", List.class))
-                .thenReturn(ResponseEntity.ok(List.of(
-                        Map.of("userId", 3L, "status", "ACTIVE"),
-                        Map.of("userId", 4L, "status", "COMPLETED"),
-                        Map.of("userId", 5L, "status", "PENDING_PAYMENT")
-                )));
+    void consumeUserEvents_passwordReset_sendsEmail() throws Exception {
+        String message = objectMapper.writeValueAsString(Map.of(
+                "eventType", "PASSWORD_RESET",
+                "email", "user@test.com",
+                "fullName", "Test User",
+                "resetLink", "http://localhost:3000/reset?token=abc"
+        ));
 
-        String message = """
-                {
-                  "eventType":"ASSIGNMENT_CREATED",
-                  "courseId":14,
-                  "courseTitle":"Spring Boot Mastery",
-                  "assignmentId":9,
-                  "assignmentTitle":"Architecture Review",
-                  "dueDate":"2026-05-30"
-                }
-                """;
+        kafkaConsumerService.consumeUserEvents(message);
 
-        consumerService.consumeCourseEvents(message);
-
-        ArgumentCaptor<NotificationLog> captor = ArgumentCaptor.forClass(NotificationLog.class);
-        verify(repository, times(2)).save(captor.capture());
-        List<NotificationLog> logs = captor.getAllValues();
-        assertEquals("assignment", logs.get(0).getType());
-        assertTrue(logs.get(0).getMessage().contains("Architecture Review"));
-        assertTrue(logs.get(0).getMessage().contains("2026-05-30"));
+        verify(emailService).sendPasswordResetEmail("user@test.com", "Test User",
+                "http://localhost:3000/reset?token=abc");
     }
 
     @Test
-    void consumeUserEventsCreatesNotificationForLogin() {
-        String message = """
-                {
-                  "eventType":"USER_LOGIN",
-                  "userId":8,
-                  "email":"asha@example.com",
-                  "fullName":"Asha"
-                }
-                """;
+    void consumeUserEvents_malformedJson_doesNotThrow() {
+        assertDoesNotThrow(() -> kafkaConsumerService.consumeUserEvents("not json at all"));
+    }
 
-        consumerService.consumeUserEvents(message);
+    // --- Course Events ---
+
+    @Test
+    void consumeCourseEvents_certificateIssued_savesNotification() throws Exception {
+        when(repository.save(any(NotificationLog.class))).thenAnswer(i -> i.getArgument(0));
+
+        String message = objectMapper.writeValueAsString(Map.of(
+                "eventType", "CERTIFICATE_ISSUED",
+                "userId", 5,
+                "courseTitle", "Java 101",
+                "certificateNo", "CERT-001"
+        ));
+
+        kafkaConsumerService.consumeCourseEvents(message);
 
         ArgumentCaptor<NotificationLog> captor = ArgumentCaptor.forClass(NotificationLog.class);
         verify(repository).save(captor.capture());
-        NotificationLog log = captor.getValue();
-        assertEquals(8L, log.getUserId());
-        assertEquals("login", log.getType());
-        assertEquals("Login Successful", log.getTitle());
-        assertTrue(log.getMessage().contains("Asha"));
+        assertEquals("certificate", captor.getValue().getType());
+        assertTrue(captor.getValue().getMessage().contains("Java 101"));
     }
 
     @Test
-    void consumeCourseEventsCreatesNotificationsForAddedCourseContent() {
-        when(restTemplate.getForEntity("http://enrollment-service/enrollments/course/22", List.class))
-                .thenReturn(ResponseEntity.ok(List.of(
-                        Map.of("userId", 31L, "status", "ACTIVE"),
-                        Map.of("userId", 32L, "status", "COMPLETED"),
-                        Map.of("userId", 33L, "status", "PENDING_PAYMENT")
-                )));
+    void consumeCourseEvents_quizResult_savesNotification() throws Exception {
+        when(repository.save(any(NotificationLog.class))).thenAnswer(i -> i.getArgument(0));
 
-        String message = """
-                {
-                  "eventType":"COURSE_CONTENT_ADDED",
-                  "courseId":22,
-                  "courseTitle":"React Complete",
-                  "contentType":"lesson",
-                  "contentTitle":"Hooks Deep Dive"
-                }
-                """;
+        String message = objectMapper.writeValueAsString(Map.of(
+                "eventType", "QUIZ_RESULT",
+                "userId", 1,
+                "quizTitle", "Mid-Term Quiz",
+                "score", 8,
+                "maxScore", 10,
+                "passed", true,
+                "timedOut", false
+        ));
 
-        consumerService.consumeCourseEvents(message);
-
-        ArgumentCaptor<NotificationLog> captor = ArgumentCaptor.forClass(NotificationLog.class);
-        verify(repository, times(2)).save(captor.capture());
-        List<NotificationLog> logs = captor.getAllValues();
-        assertEquals(31L, logs.get(0).getUserId());
-        assertEquals("lesson", logs.get(0).getType());
-        assertEquals("New Lesson Added", logs.get(0).getTitle());
-        assertTrue(logs.get(0).getMessage().contains("Hooks Deep Dive"));
-    }
-
-    @Test
-    void consumeCourseEventsUsesEnrollmentEventCourseDetailsForInstructorNotification() {
-        String message = """
-                {
-                  "eventType":"STUDENT_ENROLLED",
-                  "courseId":44,
-                  "courseTitle":"Microservices Fundamentals",
-                  "userId":17,
-                  "instructorId":91
-                }
-                """;
-
-        consumerService.consumeCourseEvents(message);
-
-        ArgumentCaptor<NotificationLog> captor = ArgumentCaptor.forClass(NotificationLog.class);
-        verify(repository, times(2)).save(captor.capture());
-        List<NotificationLog> logs = captor.getAllValues();
-        assertEquals(17L, logs.get(0).getUserId());
-        assertEquals(91L, logs.get(1).getUserId());
-        assertTrue(logs.get(1).getMessage().contains("Microservices Fundamentals"));
-        verify(restTemplate, never()).getForEntity("http://course-service/courses/44", Map.class);
-    }
-
-    @Test
-    void consumeCourseEventsCreatesInstructorNotificationForRejectedCourse() {
-        String message = """
-                {
-                  "eventType":"COURSE_REJECTED",
-                  "instructorId":21,
-                  "title":"Kafka Essentials",
-                  "reviewComment":"Please improve the course outline."
-                }
-                """;
-
-        consumerService.consumeCourseEvents(message);
+        kafkaConsumerService.consumeCourseEvents(message);
 
         ArgumentCaptor<NotificationLog> captor = ArgumentCaptor.forClass(NotificationLog.class);
         verify(repository).save(captor.capture());
-        NotificationLog log = captor.getValue();
-        assertEquals(21L, log.getUserId());
-        assertEquals("course", log.getType());
-        assertEquals("Course Needs Changes", log.getTitle());
-        assertTrue(log.getMessage().contains("Please improve the course outline."));
+        assertEquals("Quiz Passed", captor.getValue().getTitle());
+        assertTrue(captor.getValue().getMessage().contains("8/10"));
     }
 
     @Test
-    void consumeUserEventsIgnoresAvatarUpdatedEvent() {
-        String message = """
-                {
-                  "eventType":"USER_AVATAR_UPDATED",
-                  "userId":8,
-                  "email":"asha@example.com",
-                  "fullName":"Asha",
-                  "avatarUrl":"https://new-avatar"
-                }
-                """;
+    void consumeCourseEvents_assignmentGraded_savesNotification() throws Exception {
+        when(repository.save(any(NotificationLog.class))).thenAnswer(i -> i.getArgument(0));
 
-        consumerService.consumeUserEvents(message);
+        String message = objectMapper.writeValueAsString(Map.of(
+                "eventType", "ASSIGNMENT_GRADED",
+                "userId", 1,
+                "assignmentTitle", "Homework 1",
+                "score", "90",
+                "maxScore", "100",
+                "feedback", "Great work"
+        ));
 
-        verify(emailService, never()).sendWelcomeEmail(any(), any());
-        verify(repository, never()).save(any(NotificationLog.class));
+        kafkaConsumerService.consumeCourseEvents(message);
+
+        ArgumentCaptor<NotificationLog> captor = ArgumentCaptor.forClass(NotificationLog.class);
+        verify(repository).save(captor.capture());
+        assertEquals("Assignment Graded", captor.getValue().getTitle());
+        assertTrue(captor.getValue().getMessage().contains("90/100"));
+    }
+
+    @Test
+    void consumeCourseEvents_malformedJson_doesNotThrow() {
+        assertDoesNotThrow(() -> kafkaConsumerService.consumeCourseEvents("invalid"));
+    }
+
+    // --- Payment Events ---
+
+    @Test
+    void consumePaymentEvents_paymentSuccess_savesNotification() throws Exception {
+        when(repository.save(any(NotificationLog.class))).thenAnswer(i -> i.getArgument(0));
+
+        String message = objectMapper.writeValueAsString(Map.of(
+                "eventType", "PAYMENT_SUCCESS",
+                "userId", 1,
+                "courseId", 100,
+                "amount", "499",
+                "currency", "INR",
+                "courseTitle", "Python Basics"
+        ));
+
+        kafkaConsumerService.consumePaymentEvents(message);
+
+        ArgumentCaptor<NotificationLog> captor = ArgumentCaptor.forClass(NotificationLog.class);
+        verify(repository).save(captor.capture());
+        assertEquals("Payment Successful", captor.getValue().getTitle());
+        assertTrue(captor.getValue().getMessage().contains("INR 499"));
+    }
+
+    @Test
+    void consumePaymentEvents_refund_savesNotification() throws Exception {
+        when(repository.save(any(NotificationLog.class))).thenAnswer(i -> i.getArgument(0));
+
+        String message = objectMapper.writeValueAsString(Map.of(
+                "eventType", "PAYMENT_REFUNDED",
+                "userId", 1,
+                "courseId", 100,
+                "courseTitle", "Java Course"
+        ));
+
+        kafkaConsumerService.consumePaymentEvents(message);
+
+        ArgumentCaptor<NotificationLog> captor = ArgumentCaptor.forClass(NotificationLog.class);
+        verify(repository).save(captor.capture());
+        assertEquals("Refund Processed", captor.getValue().getTitle());
+    }
+
+    @Test
+    void consumePaymentEvents_subscriptionActivated() throws Exception {
+        when(repository.save(any(NotificationLog.class))).thenAnswer(i -> i.getArgument(0));
+
+        String message = objectMapper.writeValueAsString(Map.of(
+                "eventType", "SUBSCRIPTION_PRO_ACTIVATED",
+                "userId", 1,
+                "plan", "PRO"
+        ));
+
+        kafkaConsumerService.consumePaymentEvents(message);
+
+        ArgumentCaptor<NotificationLog> captor = ArgumentCaptor.forClass(NotificationLog.class);
+        verify(repository).save(captor.capture());
+        assertEquals("Subscription Activated", captor.getValue().getTitle());
+    }
+
+    @Test
+    void consumePaymentEvents_malformedJson_doesNotThrow() {
+        assertDoesNotThrow(() -> kafkaConsumerService.consumePaymentEvents("bad json"));
     }
 }

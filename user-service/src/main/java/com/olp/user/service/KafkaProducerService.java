@@ -3,6 +3,8 @@ package com.olp.user.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.olp.user.model.UserProfile;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
@@ -11,6 +13,8 @@ import java.util.Map;
 
 @Service
 public class KafkaProducerService {
+
+    private static final Logger log = LoggerFactory.getLogger(KafkaProducerService.class);
 
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final ObjectMapper objectMapper;
@@ -32,7 +36,7 @@ public class KafkaProducerService {
             String message = objectMapper.writeValueAsString(event);
             kafkaTemplate.send("user-events", String.valueOf(userId), message);
         } catch (JsonProcessingException e) {
-            System.err.println("Error serializing user signup event: " + e.getMessage());
+            log.error("Error serializing user signup event: {}", e.getMessage(), e);
         }
     }
 
@@ -64,7 +68,7 @@ public class KafkaProducerService {
             String message = objectMapper.writeValueAsString(event);
             kafkaTemplate.send("user-events", String.valueOf(key), message);
         } catch (JsonProcessingException e) {
-            System.err.println("Error serializing user event: " + e.getMessage());
+            log.error("Error serializing user event: {}", e.getMessage(), e);
         }
     }
 }

@@ -2,9 +2,11 @@ package com.olp.auth.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.olp.auth.config.JwtUtil;
+import com.olp.auth.constant.AuthConstants;
+import com.olp.auth.dto.AuthDtos.*;
 import com.olp.auth.model.AuthUser;
 import com.olp.auth.repository.AuthUserRepository;
-import java.security.Principal;
+// import java.security.Principal;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -60,91 +62,97 @@ public class AuthController {
   }
 
   @PostMapping("/register")
-  public ResponseEntity<?> register(@RequestBody Map<String, String> body) {
-      String email = normalizeEmail(body.get("email"));
-      String name = body.get("name");
-      String password = body.get("password");
-      String role = resolveRegistrationRole(body.get("role"));
+  public ResponseEntity<?> register(@RequestBody RegisterRequest request) {
+      String email = normalizeEmail(request.email());
+      String password = request.password();
 
       if (email == null || email.isBlank() || password == null || password.isBlank()) {
-          return ResponseEntity.badRequest().body(Map.of("error", "Email and password are required"));
+          return ResponseEntity.badRequest().body(new ErrorResponse("Email and password are required"));
       }
 
       if (authUserRepository.findByEmail(email).isPresent()) {
-          return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "Email already exists"));
+          return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ErrorResponse("Email already exists"));
       }
 
       AuthUser user = new AuthUser();
       user.setEmail(email);
-      user.setName(name);
+      user.setName(request.name());
       user.setPassword(passwordEncoder.encode(password));
-      user.setProvider("LOCAL");
-      user.setRole(role);
+      user.setProvider(AuthConstants.PROVIDER_LOCAL);
+      user.setRole(resolveRegistrationRole(request.role()));
       AuthUser saved = authUserRepository.save(user);
 
-      // Publish USER_SIGNUP event to Kafka (async, non-blocking)
       publishUserSignupEvent(saved);
 
       String token = jwtUtil.generateToken(saved.getEmail(), saved.getRole(), saved.getId(), saved.getName());
-      return ResponseEntity.ok(Map.of("token", token, "user", saved));
+      return ResponseEntity.ok(new AuthResponse(token, saved));
   }
 
   @PostMapping("/login")
-  public ResponseEntity<?> login(@RequestBody Map<String, String> body) {
-      String email = normalizeEmail(body.get("email"));
-      String password = body.get("password");
+  public ResponseEntity<?> login(@RequestBody LoginRequest request) {
+      String email = normalizeEmail(request.email());
+      String password = request.password();
+      
       if (email == null || email.isBlank() || password == null || password.isBlank()) {
-          return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Invalid credentials"));
+          return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ErrorResponse(AuthConstants.MSG_INVALID_CREDENTIALS));
       }
       log.debug("Login attempt received for {}", email);
 
       if (isBootstrapAdminLogin(email, password)) {
-          AuthUser admin = authUserRepository.findByEmail(normalizeEmail(bootstrapAdminEmail))
-                  .orElseGet(AuthUser::new);
-          admin.setEmail(normalizeEmail(bootstrapAdminEmail));
-          admin.setName(admin.getName() == null || admin.getName().isBlank() ? bootstrapAdminName : admin.getName());
-          admin.setPassword(passwordEncoder.encode(bootstrapAdminPassword));
-          admin.setProvider(admin.getProvider() == null || admin.getProvider().isBlank() ? "LOCAL" : admin.getProvider());
-          admin.setRole("ADMIN");
-          AuthUser saved = authUserRepository.save(admin);
-          publishUserSignupEvent(saved);
-          publishUserLoginEvent(saved);
-          String token = jwtUtil.generateToken(saved.getEmail(), saved.getRole(), saved.getId(), saved.getName());
-          return ResponseEntity.ok(Map.of("token", token, "user", saved));
+          return handleBootstrapAdminLogin();
       }
 
+      return handleNormalLogin(email, password);
+  }
+
+  private ResponseEntity<?> handleBootstrapAdminLogin() {
+      AuthUser admin = authUserRepository.findByEmail(normalizeEmail(bootstrapAdminEmail))
+              .orElseGet(AuthUser::new);
+      admin.setEmail(normalizeEmail(bootstrapAdminEmail));
+      admin.setName(admin.getName() == null || admin.getName().isBlank() ? bootstrapAdminName : admin.getName());
+      admin.setPassword(passwordEncoder.encode(bootstrapAdminPassword));
+      admin.setProvider(admin.getProvider() == null || admin.getProvider().isBlank() ? AuthConstants.PROVIDER_LOCAL : admin.getProvider());
+      admin.setRole(AuthConstants.ROLE_ADMIN);
+      AuthUser saved = authUserRepository.save(admin);
+      publishUserSignupEvent(saved);
+      publishUserLoginEvent(saved);
+      String token = jwtUtil.generateToken(saved.getEmail(), saved.getRole(), saved.getId(), saved.getName());
+      return ResponseEntity.ok(new AuthResponse(token, saved));
+  }
+
+  private ResponseEntity<?> handleNormalLogin(String email, String password) {
       AuthUser user = authUserRepository.findByEmail(email).orElse(null);
       if (user == null || user.getPassword() == null) {
-          return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Invalid credentials"));
+          return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ErrorResponse(AuthConstants.MSG_INVALID_CREDENTIALS));
       }
-      if ("DEACTIVATED".equalsIgnoreCase(user.getRole())) {
+      if (AuthConstants.ROLE_DEACTIVATED.equalsIgnoreCase(user.getRole())) {
           log.warn("Blocked login attempt for deactivated account {}", email);
-          return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Your account has been deactivated. Contact support."));
+          return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorResponse(AuthConstants.MSG_ACCOUNT_DEACTIVATED));
       }
 
-      boolean isPasswordMatch = false;
-      boolean isPlaintext = !user.getPassword().startsWith("$2a$");
-
-      if (isPlaintext) {
-          if (password.equals(user.getPassword())) {
-              isPasswordMatch = true;
-              // Seamless migration: hash and save
-              user.setPassword(passwordEncoder.encode(password));
-              authUserRepository.save(user);
-          }
-      } else {
-          isPasswordMatch = passwordEncoder.matches(password, user.getPassword());
-      }
-
-      if (!isPasswordMatch) {
+      if (!checkAndUpdatePassword(user, password)) {
           log.warn("Login failed due to invalid password for {}", email);
-          return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Invalid credentials"));
+          return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ErrorResponse(AuthConstants.MSG_INVALID_CREDENTIALS));
       }
 
       publishUserLoginEvent(user);
       log.info("Login success for userId={} email={} role={}", user.getId(), user.getEmail(), user.getRole());
       String token = jwtUtil.generateToken(user.getEmail(), user.getRole(), user.getId(), user.getName());
-      return ResponseEntity.ok(Map.of("token", token, "user", user));
+      return ResponseEntity.ok(new AuthResponse(token, user));
+  }
+
+  private boolean checkAndUpdatePassword(AuthUser user, String password) {
+      boolean isPlaintext = !user.getPassword().startsWith("$2a$");
+
+      if (isPlaintext) {
+          if (password.equals(user.getPassword())) {
+              user.setPassword(passwordEncoder.encode(password));
+              authUserRepository.save(user);
+              return true;
+          }
+          return false;
+      }
+      return passwordEncoder.matches(password, user.getPassword());
   }
 
   private boolean isBootstrapAdminLogin(String email, String password) {
@@ -158,91 +166,82 @@ public class AuthController {
               && bootstrapAdminPassword.equals(password);
   }
 
-  // ── Forgot Password: generate a reset token and publish event ──
   @PostMapping("/forgot-password")
-  public ResponseEntity<?> forgotPassword(@RequestBody Map<String, String> body) {
-      String email = normalizeEmail(body.get("email"));
+  public ResponseEntity<?> forgotPassword(@RequestBody ForgotPasswordRequest request) {
+      String email = normalizeEmail(request.email());
       AuthUser user = authUserRepository.findByEmail(email).orElse(null);
       if (user == null) {
-          // Don't reveal whether the email exists
-          return ResponseEntity.ok(Map.of("message", "If the email is registered, you will receive a reset link."));
+          return ResponseEntity.ok(new MessageResponse("If the email is registered, you will receive a reset link."));
       }
 
       String resetToken = UUID.randomUUID().toString();
       purgeExpiredResetTokens();
       resetTokens.put(resetToken, new ResetTokenRecord(email, System.currentTimeMillis() + RESET_TOKEN_TTL_MILLIS));
 
-      // Publish event so notification-service can send the email
       try {
           String resetLink = frontendUrl.replaceAll("/+$", "") + "/reset-password?token=" + resetToken;
           String event = String.format(
-              "{\"eventType\":\"PASSWORD_RESET\",\"email\":\"%s\",\"fullName\":\"%s\",\"resetLink\":\"%s\"}",
-              email, user.getName(), resetLink
+              "{\"eventType\":\"%s\",\"email\":\"%s\",\"fullName\":\"%s\",\"resetLink\":\"%s\"}",
+              AuthConstants.EVENT_PASSWORD_RESET, email, user.getName(), resetLink
           );
           kafkaTemplate.send("user-events", event);
       } catch (Exception e) {
           log.warn("Failed to publish PASSWORD_RESET event for {}", email, e);
       }
 
-      return ResponseEntity.ok(Map.of("message", "If the email is registered, you will receive a reset link."));
+      return ResponseEntity.ok(new MessageResponse("If the email is registered, you will receive a reset link."));
   }
 
-  // ── Reset Password: validate token and update password ──
   @PostMapping("/reset-password")
-  public ResponseEntity<?> resetPassword(@RequestBody Map<String, String> body) {
-      String token = body.get("token");
-      String newPassword = body.get("password");
+  public ResponseEntity<?> resetPassword(@RequestBody ResetPasswordRequest request) {
+      String token = request.token();
+      String newPassword = request.password();
 
       if (token == null || newPassword == null) {
-          return ResponseEntity.badRequest().body(Map.of("error", "Token and password are required"));
+          return ResponseEntity.badRequest().body(new ErrorResponse("Token and password are required"));
       }
 
       purgeExpiredResetTokens();
       ResetTokenRecord tokenRecord = resetTokens.get(token);
       if (tokenRecord == null || tokenRecord.expiresAt() < System.currentTimeMillis()) {
           resetTokens.remove(token);
-          return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "Invalid or expired reset token"));
+          return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ErrorResponse("Invalid or expired reset token"));
       }
 
       String email = tokenRecord.email();
       AuthUser user = authUserRepository.findByEmail(email).orElse(null);
       if (user == null) {
-          return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "User not found"));
+          return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ErrorResponse(AuthConstants.MSG_USER_NOT_FOUND));
       }
 
       user.setPassword(passwordEncoder.encode(newPassword));
       authUserRepository.save(user);
-      resetTokens.remove(token); // Invalidate the token
+      resetTokens.remove(token);
 
-      return ResponseEntity.ok(Map.of("message", "Password reset successfully. You can now log in."));
+      return ResponseEntity.ok(new MessageResponse("Password reset successfully. You can now log in."));
   }
 
   @GetMapping("/login/success")
-  public ResponseEntity<Map<String, Object>> loginSuccess(
-    @AuthenticationPrincipal OAuth2User oAuth2User
-  ) {
+  public ResponseEntity<?> loginSuccess(@AuthenticationPrincipal OAuth2User oAuth2User) {
     if (oAuth2User == null) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
     }
-    String email = normalizeEmail(oAuth2User.getAttribute("email"));
+    String email = normalizeEmail(oAuth2User.getAttribute(AuthConstants.KEY_EMAIL));
     String name = oAuth2User.getAttribute("name");
     String picture = oAuth2User.getAttribute("picture");
 
-    AuthUser user = authUserRepository
-      .findByEmail(email)
-      .orElseGet(AuthUser::new);
-    if ("DEACTIVATED".equalsIgnoreCase(user.getRole())) {
-        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Your account has been deactivated. Contact support."));
+    AuthUser user = authUserRepository.findByEmail(email).orElseGet(AuthUser::new);
+    if (AuthConstants.ROLE_DEACTIVATED.equalsIgnoreCase(user.getRole())) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorResponse(AuthConstants.MSG_ACCOUNT_DEACTIVATED));
     }
     if (user.getId() == null) {
         user.setEmail(email);
         user.setName(name != null ? name : "Google User");
-        user.setProvider("GOOGLE");
-        user.setRole("STUDENT");
+        user.setProvider(AuthConstants.PROVIDER_GOOGLE);
+        user.setRole(AuthConstants.ROLE_STUDENT);
         user.setAvatarUrl(picture);
         user = authUserRepository.save(user);
 
-        // Publish signup event for Google users too
         publishUserSignupEvent(user);
     } else if (picture != null && !picture.equals(user.getAvatarUrl())) {
         user.setAvatarUrl(picture);
@@ -254,13 +253,11 @@ public class AuthController {
     log.info("OAuth login success for userId={} email={} role={}", user.getId(), user.getEmail(), user.getRole());
     String token = jwtUtil.generateToken(user.getEmail(), user.getRole(), user.getId(), user.getName());
 
-    return ResponseEntity.ok(
-      Map.of(
-        "message", "Google OAuth login successful",
-        "token", token,
-        "user", user
-      )
-    );
+    Map<String, Object> response = new HashMap<>();
+    response.put(AuthConstants.KEY_MESSAGE, "Google OAuth login successful");
+    response.put(AuthConstants.KEY_TOKEN, token);
+    response.put("user", user);
+    return ResponseEntity.ok(response);
   }
 
   @GetMapping("/me")
@@ -268,125 +265,108 @@ public class AuthController {
     if (email == null || email.isEmpty()) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
     return authUserRepository.findByEmail(email)
         .<ResponseEntity<?>>map(user -> {
-            if ("DEACTIVATED".equalsIgnoreCase(user.getRole())) {
-                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Your account has been deactivated."));
+            if (AuthConstants.ROLE_DEACTIVATED.equalsIgnoreCase(user.getRole())) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorResponse(AuthConstants.MSG_ACCOUNT_DEACTIVATED_SHORT));
             }
-            Map<String, Object> response = new HashMap<>();
-            response.put("id", user.getId());
-            response.put("email", user.getEmail());
-            response.put("name", user.getName());
-            response.put("role", user.getRole());
-            response.put("provider", user.getProvider());
-            response.put("avatarUrl", user.getAvatarUrl());
-            response.put("mobile", user.getMobile());
-            response.put("bio", user.getBio());
-            response.put("createdAt", user.getCreatedAt());
-            return ResponseEntity.ok(response);
+            return ResponseEntity.ok(ProfileResponse.from(user));
         })
         .orElseGet(() -> {
             log.warn("/auth/me — user not found in DB for email={}", email);
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("error", "User not found"));
+                    .body(new ErrorResponse(AuthConstants.MSG_USER_NOT_FOUND));
         });
   }
 
   @PostMapping("/refresh")
   public ResponseEntity<?> refresh(@RequestHeader(value = "X-User-Email", required = false) String email) {
       if (email == null || email.isBlank()) {
-          return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Missing authenticated user"));
+          return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ErrorResponse(AuthConstants.MSG_MISSING_AUTH_USER));
       }
       AuthUser user = authUserRepository.findByEmail(normalizeEmail(email)).orElse(null);
       if (user == null) {
-          return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "User not found"));
+          return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ErrorResponse(AuthConstants.MSG_USER_NOT_FOUND));
       }
-      if ("DEACTIVATED".equalsIgnoreCase(user.getRole())) {
-          return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Your account has been deactivated."));
+      if (AuthConstants.ROLE_DEACTIVATED.equalsIgnoreCase(user.getRole())) {
+          return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorResponse(AuthConstants.MSG_ACCOUNT_DEACTIVATED_SHORT));
       }
       String token = jwtUtil.generateToken(user.getEmail(), user.getRole(), user.getId(), user.getName());
-      return ResponseEntity.ok(Map.of("token", token, "user", user));
+      return ResponseEntity.ok(new AuthResponse(token, user));
   }
 
   @PostMapping("/validate")
-  public ResponseEntity<?> validate(@RequestBody Map<String, String> body) {
-      String token = body.get("token");
+  public ResponseEntity<?> validate(@RequestBody TokenRequest request) {
+      String token = request.token();
       if (token == null || token.isBlank()) {
-          return ResponseEntity.badRequest().body(Map.of("error", "Token is required"));
+          return ResponseEntity.badRequest().body(new ErrorResponse("Token is required"));
       }
       if (!jwtUtil.validateToken(token)) {
-          return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("valid", false));
+          return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new TokenValidationResponse(false, null, null, null, null, null));
       }
       Claims claims = jwtUtil.extractAllClaims(token);
-      return ResponseEntity.ok(Map.of(
-              "valid", true,
-              "email", claims.getSubject(),
-              "role", claims.get("role", String.class),
-              "userId", claims.get("userId"),
-              "name", claims.get("name", String.class),
-              "expiresAt", claims.getExpiration()
+      return ResponseEntity.ok(new TokenValidationResponse(
+              true,
+              claims.getSubject(),
+              claims.get("role", String.class),
+              claims.get("userId"),
+              claims.get("name", String.class),
+              claims.getExpiration()
       ));
   }
 
   @PutMapping("/password")
   public ResponseEntity<?> changePassword(
           @RequestHeader(value = "X-User-Email", required = false) String email,
-          @RequestBody Map<String, String> body) {
+          @RequestBody ChangePasswordRequest request) {
       if (email == null || email.isBlank()) {
-          return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Missing authenticated user"));
+          return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ErrorResponse(AuthConstants.MSG_MISSING_AUTH_USER));
       }
-      String currentPassword = body.get("currentPassword");
-      String newPassword = body.get("newPassword");
+      String currentPassword = request.currentPassword();
+      String newPassword = request.newPassword();
       if (newPassword == null || newPassword.isBlank()) {
-          return ResponseEntity.badRequest().body(Map.of("error", "New password is required"));
+          return ResponseEntity.badRequest().body(new ErrorResponse("New password is required"));
       }
       AuthUser user = authUserRepository.findByEmail(normalizeEmail(email)).orElse(null);
       if (user == null) {
-          return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "User not found"));
+          return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse(AuthConstants.MSG_USER_NOT_FOUND));
       }
       if (user.getPassword() != null && !user.getPassword().isBlank()) {
           boolean matches = user.getPassword().startsWith("$2")
                   ? passwordEncoder.matches(currentPassword == null ? "" : currentPassword, user.getPassword())
                   : user.getPassword().equals(currentPassword);
           if (!matches) {
-              return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Current password is incorrect"));
+              return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ErrorResponse("Current password is incorrect"));
           }
       }
       user.setPassword(passwordEncoder.encode(newPassword));
       authUserRepository.save(user);
-      return ResponseEntity.ok(Map.of("message", "Password updated successfully"));
+      return ResponseEntity.ok(new MessageResponse("Password updated successfully"));
   }
 
   @PutMapping("/profile")
   public ResponseEntity<?> updateProfile(
           @RequestHeader(value = "X-User-Email", required = false) String email,
-          @RequestBody Map<String, String> body) {
+          @RequestBody ProfileUpdateRequest request) {
       if (email == null || email.isBlank()) {
-          return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Missing authenticated user"));
+          return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ErrorResponse(AuthConstants.MSG_MISSING_AUTH_USER));
       }
       AuthUser user = authUserRepository.findByEmail(normalizeEmail(email)).orElse(null);
       if (user == null) {
-          return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "User not found"));
+          return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse(AuthConstants.MSG_USER_NOT_FOUND));
       }
-      if (body.containsKey("name")) user.setName(body.get("name"));
-      if (body.containsKey("avatarUrl")) user.setAvatarUrl(body.get("avatarUrl"));
-      if (body.containsKey("mobile")) user.setMobile(body.get("mobile"));
-      if (body.containsKey("bio")) user.setBio(body.get("bio"));
+      if (request.name() != null) user.setName(request.name());
+      if (request.avatarUrl() != null) user.setAvatarUrl(request.avatarUrl());
+      if (request.mobile() != null) user.setMobile(request.mobile());
+      if (request.bio() != null) user.setBio(request.bio());
+      
       authUserRepository.save(user);
-      publishUserEvent("USER_PROFILE_UPDATED", user);
-      Map<String, Object> response = new HashMap<>();
-      response.put("id", user.getId());
-      response.put("email", user.getEmail());
-      response.put("name", user.getName());
-      response.put("role", user.getRole());
-      response.put("provider", user.getProvider());
-      response.put("avatarUrl", user.getAvatarUrl());
-      response.put("mobile", user.getMobile());
-      response.put("bio", user.getBio());
-      return ResponseEntity.ok(response);
+      publishUserEvent(AuthConstants.EVENT_USER_PROFILE_UPDATED, user);
+      
+      return ResponseEntity.ok(ProfileResponse.from(user));
   }
 
   @PostMapping("/logout")
-  public ResponseEntity<Map<String, String>> logout() {
-    return ResponseEntity.ok(Map.of("message", "Logged out"));
+  public ResponseEntity<?> logout() {
+    return ResponseEntity.ok(new MessageResponse("Logged out"));
   }
 
   @GetMapping("/public/ping")
@@ -395,15 +375,15 @@ public class AuthController {
   }
 
   private void publishUserSignupEvent(AuthUser user) {
-      publishUserEvent("USER_SIGNUP", user);
+      publishUserEvent(AuthConstants.EVENT_USER_SIGNUP, user);
   }
 
   private void publishUserAvatarUpdatedEvent(AuthUser user) {
-      publishUserEvent("USER_AVATAR_UPDATED", user);
+      publishUserEvent(AuthConstants.EVENT_USER_AVATAR_UPDATED, user);
   }
 
   private void publishUserLoginEvent(AuthUser user) {
-      publishUserEvent("USER_LOGIN", user);
+      publishUserEvent(AuthConstants.EVENT_USER_LOGIN, user);
   }
 
   private void publishUserEvent(String eventType, AuthUser user) {
@@ -411,7 +391,7 @@ public class AuthController {
           Map<String, Object> event = new HashMap<>();
           event.put("eventType", eventType);
           event.put("userId", user.getId());
-          event.put("email", user.getEmail());
+          event.put(AuthConstants.KEY_EMAIL, user.getEmail());
           event.put("fullName", user.getName());
           event.put("role", user.getRole());
           event.put("avatarUrl", user.getAvatarUrl());
@@ -427,10 +407,10 @@ public class AuthController {
   }
 
   private String resolveRegistrationRole(String requestedRole) {
-      if ("INSTRUCTOR".equalsIgnoreCase(requestedRole)) {
-          return "INSTRUCTOR";
+      if (AuthConstants.ROLE_INSTRUCTOR.equalsIgnoreCase(requestedRole)) {
+          return AuthConstants.ROLE_INSTRUCTOR;
       }
-      return "STUDENT";
+      return AuthConstants.ROLE_STUDENT;
   }
 
   private void purgeExpiredResetTokens() {

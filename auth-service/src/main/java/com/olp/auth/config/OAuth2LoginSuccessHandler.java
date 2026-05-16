@@ -1,6 +1,5 @@
 package com.olp.auth.config;
 
-
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.olp.auth.model.AuthUser;
 import com.olp.auth.repository.AuthUserRepository;
@@ -30,6 +29,7 @@ public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
     private final JwtUtil jwtUtil;
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    
     @Value("${app.frontend-url:http://localhost:3000}")
     private String frontendUrl;
 
@@ -46,65 +46,81 @@ public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
         String email = oAuth2User.getAttribute("email");
         String name = oAuth2User.getAttribute("name");
         String picture = oAuth2User.getAttribute("picture");
+        
         if (email == null || email.isBlank()) {
             log.warn("Google OAuth callback received without email claim");
             response.sendRedirect(frontendUrl + "/login?oauthError=" + URLEncoder.encode("Google account did not return an email address", StandardCharsets.UTF_8));
             return;
         }
+        
         String normalizedEmail = email.trim().toLowerCase();
-
         AuthUser user = authUserRepository.findByEmail(normalizedEmail).orElseGet(AuthUser::new);
         
         if (user.getId() == null) {
-            user.setEmail(normalizedEmail);
-            user.setName(name != null ? name : "Google User");
-            user.setProvider("GOOGLE");
-            user.setRole("STUDENT");
-            user.setAvatarUrl(picture);
-            user = authUserRepository.save(user);
+            user = createNewUser(normalizedEmail, name, picture);
             publishUserSignupEvent(user);
         } else {
-            boolean changed = false;
-            boolean avatarChanged = false;
-            if (user.getEmail() == null || !normalizedEmail.equalsIgnoreCase(user.getEmail())) {
-                user.setEmail(normalizedEmail);
-                changed = true;
-            }
-            if (user.getName() == null || user.getName().isBlank()) {
-                user.setName(name != null ? name : "Google User");
-                changed = true;
-            }
-            if (user.getProvider() == null || user.getProvider().isBlank()) {
-                user.setProvider("GOOGLE");
-                changed = true;
-            }
-            if (picture != null && !picture.equals(user.getAvatarUrl())) {
-                user.setAvatarUrl(picture);
-                changed = true;
-                avatarChanged = true;
-            }
-            if (changed) {
-                user = authUserRepository.save(user);
-            }
-            if (avatarChanged) {
-                publishUserAvatarUpdatedEvent(user);
-            }
+            user = updateExistingUser(user, normalizedEmail, name, picture);
         }
 
         publishUserLoginEvent(user);
         log.info("OAuth login success userId={} email={} role={}", user.getId(), user.getEmail(), user.getRole());
+        
         String token = jwtUtil.generateToken(user.getEmail(), user.getRole(), user.getId(), user.getName());
+        String redirectUrl = buildRedirectUrl(token, user);
 
-        // Pass only individual fields as URL params — avoids JSON URL-encoding issues
-        String redirectUrl = frontendUrl + "/login" +
+        response.sendRedirect(redirectUrl);
+    }
+
+    private AuthUser createNewUser(String email, String name, String picture) {
+        AuthUser user = new AuthUser();
+        user.setEmail(email);
+        user.setName(name != null ? name : "Google User");
+        user.setProvider("GOOGLE");
+        user.setRole("STUDENT");
+        user.setAvatarUrl(picture);
+        return authUserRepository.save(user);
+    }
+
+    private AuthUser updateExistingUser(AuthUser user, String normalizedEmail, String name, String picture) {
+        boolean changed = false;
+        boolean avatarChanged = false;
+        
+        if (user.getEmail() == null || !normalizedEmail.equalsIgnoreCase(user.getEmail())) {
+            user.setEmail(normalizedEmail);
+            changed = true;
+        }
+        if (user.getName() == null || user.getName().isBlank()) {
+            user.setName(name != null ? name : "Google User");
+            changed = true;
+        }
+        if (user.getProvider() == null || user.getProvider().isBlank()) {
+            user.setProvider("GOOGLE");
+            changed = true;
+        }
+        if (picture != null && !picture.equals(user.getAvatarUrl())) {
+            user.setAvatarUrl(picture);
+            changed = true;
+            avatarChanged = true;
+        }
+        
+        if (changed) {
+            user = authUserRepository.save(user);
+        }
+        if (avatarChanged) {
+            publishUserAvatarUpdatedEvent(user);
+        }
+        return user;
+    }
+
+    private String buildRedirectUrl(String token, AuthUser user) {
+        return frontendUrl + "/login" +
                 "?token=" + URLEncoder.encode(token, StandardCharsets.UTF_8) +
                 "&userId=" + user.getId() +
                 "&email=" + URLEncoder.encode(user.getEmail() != null ? user.getEmail() : "", StandardCharsets.UTF_8) +
                 "&name=" + URLEncoder.encode(user.getName() != null ? user.getName() : "", StandardCharsets.UTF_8) +
                 "&role=" + URLEncoder.encode(user.getRole() != null ? user.getRole() : "STUDENT", StandardCharsets.UTF_8) +
                 "&avatarUrl=" + URLEncoder.encode(user.getAvatarUrl() != null ? user.getAvatarUrl() : "", StandardCharsets.UTF_8);
-
-        response.sendRedirect(redirectUrl);
     }
 
     private void publishUserSignupEvent(AuthUser user) {

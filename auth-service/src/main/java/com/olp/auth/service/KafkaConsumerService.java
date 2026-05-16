@@ -5,11 +5,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.olp.auth.model.AuthUser;
 import com.olp.auth.repository.AuthUserRepository;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
 
 @Service
 public class KafkaConsumerService {
+
+    private static final Logger log = LoggerFactory.getLogger(KafkaConsumerService.class);
 
     private final AuthUserRepository authUserRepository;
     private final ObjectMapper objectMapper;
@@ -51,7 +55,7 @@ public class KafkaConsumerService {
             }
             authUserRepository.save(user);
         } catch (Exception e) {
-            System.err.println("Failed to process auth user sync event: " + e.getMessage());
+            log.error("Failed to process auth user sync event: {}", e.getMessage(), e);
         }
     }
 

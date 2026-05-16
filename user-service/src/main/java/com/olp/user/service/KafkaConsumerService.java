@@ -4,11 +4,15 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.olp.user.model.UserProfile;
 import com.olp.user.repository.UserProfileRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
 
 @Service
 public class KafkaConsumerService {
+
+    private static final Logger log = LoggerFactory.getLogger(KafkaConsumerService.class);
 
     private final UserProfileRepository repository;
     private final ObjectMapper objectMapper;
@@ -39,7 +43,7 @@ public class KafkaConsumerService {
                     profile.setRole(role);
                     profile.setAvatarUrl(avatarUrl);
                     repository.save(profile);
-                    System.out.println("Created UserProfile for ID: " + userId);
+                    log.info("Created UserProfile for ID: {}", userId);
                 } else if (userId != null) {
                     repository.findById(userId).ifPresent(profile -> {
                         if (email != null && !email.isBlank()) {
@@ -69,7 +73,7 @@ public class KafkaConsumerService {
                 }
             }
         } catch (Exception e) {
-            System.err.println("Failed to process user event: " + e.getMessage());
+            log.error("Failed to process user event: {}", e.getMessage(), e);
         }
     }
 }
