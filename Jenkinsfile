@@ -42,8 +42,15 @@ pipeline {
         // ── STAGE 1: CHECKOUT ──────────────────────────────────────────────────────
         stage('Checkout') {
             steps {
-                echo "🔄 Checking out branch: ${SAFE_BRANCH}"
-                checkout scm
+                echo "🔄 Checking out repositories for branch: ${SAFE_BRANCH}"
+                
+                dir('backend') {
+                    git branch: SAFE_BRANCH, url: 'https://github.com/Muskangupta15223/EduLearn.git'
+                }
+                
+                dir('edulearn-vite') {
+                    git branch: SAFE_BRANCH, url: 'https://github.com/Muskangupta15223/EduLearnApp-Frontend.git'
+                }
             }
         }
 
