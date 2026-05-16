@@ -42,7 +42,7 @@ pipeline {
         // ── STAGE 1: CHECKOUT ──────────────────────────────────────────────────────
         stage('Checkout') {
             steps {
-                echo "🔄 Checking out branch: ${BRANCH_NAME}"
+                echo "🔄 Checking out branch: ${SAFE_BRANCH}"
                 checkout scm
             }
         }
