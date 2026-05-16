@@ -254,18 +254,35 @@ REMOTE_SCRIPT
                 withCredentials([string(credentialsId: 'app-server-ip', variable: 'TARGET_IP')]) {
                     sshagent(['app-server-ssh']) {
                         script {
-                            def healthOk = sh(
-                                script: """
-                                    ssh -o StrictHostKeyChecking=no ${APP_SERVER_USER}@\$TARGET_IP \\
-                                        'curl -sf http://localhost:8080/actuator/health | grep -q "UP"'
-                                """,
-                                returnStatus: true
-                            ) == 0
+                            echo "⏳ Waiting for API Gateway to become healthy (this may take up to 3 minutes)..."
+                            def maxRetries = 18
+                            def retryDelay = 10
+                            def healthOk = false
+
+                            for (int i = 0; i < maxRetries; i++) {
+                                def status = sh(
+                                    script: """
+                                        ssh -o StrictHostKeyChecking=no ${APP_SERVER_USER}@\$TARGET_IP \\
+                                            'curl -sf http://localhost:8080/actuator/health | grep -q "UP"'
+                                    """,
+                                    returnStatus: true
+                                )
+
+                                if (status == 0) {
+                                    healthOk = true
+                                    break
+                                }
+                                
+                                echo "🕒 Attempt ${i+1}/${maxRetries}: Application not ready yet. Retrying in ${retryDelay}s..."
+                                sleep(retryDelay)
+                            }
 
                             if (healthOk) {
                                 echo "✅ Health check passed! Application is live at http://\$TARGET_IP:8080"
                             } else {
-                                error "❌ Deployment failed health check! The API Gateway is not reporting as UP."
+                                // If it still fails, print docker logs for debugging
+                                sh "ssh -o StrictHostKeyChecking=no ${APP_SERVER_USER}@\$TARGET_IP 'docker compose logs --tail=50 api-gateway'"
+                                error "❌ Deployment failed health check! The API Gateway did not become UP within 3 minutes."
                             }
                         }
                     }
