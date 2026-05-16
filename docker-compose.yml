@@ -105,11 +105,7 @@ services:
           memory: 1G
 
   discovery-service:
-    build:
-      <<: *build-base
-      args:
-        SERVICE_NAME: discovery-service
-    image: ${SERVICE_IMAGE_PREFIX:-EduLearn}/discovery-service:latest
+    image: ${SERVICE_IMAGE_PREFIX:-muskangupta8239}/discovery-service:latest
     container_name: discovery-service
     restart: unless-stopped
     logging: *default-logging
@@ -135,11 +131,7 @@ services:
       start_period: 40s
 
   config-service:
-    build:
-      <<: *build-base
-      args:
-        SERVICE_NAME: config-service
-    image: ${SERVICE_IMAGE_PREFIX:-EduLearn}/config-service:latest
+    image: ${SERVICE_IMAGE_PREFIX:-muskangupta8239}/config-service:latest
     container_name: config-service
     restart: unless-stopped
     logging: *default-logging
@@ -168,11 +160,7 @@ services:
       start_period: 40s
 
   api-gateway:
-    build:
-      <<: *build-base
-      args:
-        SERVICE_NAME: api-gateway
-    image: ${SERVICE_IMAGE_PREFIX:-EduLearn}/api-gateway:latest
+    image: ${SERVICE_IMAGE_PREFIX:-muskangupta8239}/api-gateway:latest
     container_name: api-gateway
     restart: unless-stopped
     logging: *default-logging
@@ -201,11 +189,7 @@ services:
       start_period: 40s
 
   auth-service:
-    build:
-      <<: *build-base
-      args:
-        SERVICE_NAME: auth-service
-    image: ${SERVICE_IMAGE_PREFIX:-EduLearn}/auth-service:latest
+    image: ${SERVICE_IMAGE_PREFIX:-muskangupta8239}/auth-service:latest
     container_name: auth-service
     restart: unless-stopped
     logging: *default-logging
@@ -242,11 +226,7 @@ services:
       start_period: 40s
 
   user-service:
-    build:
-      <<: *build-base
-      args:
-        SERVICE_NAME: user-service
-    image: ${SERVICE_IMAGE_PREFIX:-EduLearn}/user-service:latest
+    image: ${SERVICE_IMAGE_PREFIX:-muskangupta8239}/user-service:latest
     container_name: user-service
     restart: unless-stopped
     logging: *default-logging
@@ -280,11 +260,7 @@ services:
       start_period: 40s
 
   course-service:
-    build:
-      <<: *build-base
-      args:
-        SERVICE_NAME: course-service
-    image: ${SERVICE_IMAGE_PREFIX:-EduLearn}/course-service:latest
+    image: ${SERVICE_IMAGE_PREFIX:-muskangupta8239}/course-service:latest
     container_name: course-service
     restart: unless-stopped
     logging: *default-logging
@@ -316,11 +292,7 @@ services:
       start_period: 40s
 
   enrollment-service:
-    build:
-      <<: *build-base
-      args:
-        SERVICE_NAME: enrollment-service
-    image: ${SERVICE_IMAGE_PREFIX:-EduLearn}/enrollment-service:latest
+    image: ${SERVICE_IMAGE_PREFIX:-muskangupta8239}/enrollment-service:latest
     container_name: enrollment-service
     restart: unless-stopped
     logging: *default-logging
@@ -352,11 +324,7 @@ services:
       start_period: 40s
 
   payment-service:
-    build:
-      <<: *build-base
-      args:
-        SERVICE_NAME: payment-service
-    image: ${SERVICE_IMAGE_PREFIX:-EduLearn}/payment-service:latest
+    image: ${SERVICE_IMAGE_PREFIX:-muskangupta8239}/payment-service:latest
     container_name: payment-service
     restart: unless-stopped
     logging: *default-logging
@@ -391,11 +359,7 @@ services:
       start_period: 40s
 
   notification-service:
-    build:
-      <<: *build-base
-      args:
-        SERVICE_NAME: notification-service
-    image: ${SERVICE_IMAGE_PREFIX:-EduLearn}/notification-service:latest
+    image: ${SERVICE_IMAGE_PREFIX:-muskangupta8239}/notification-service:latest
     container_name: notification-service
     restart: unless-stopped
     logging: *default-logging
@@ -430,11 +394,7 @@ services:
       start_period: 40s
 
   admin-server:
-    build:
-      <<: *build-base
-      args:
-        SERVICE_NAME: admin-server
-    image: ${SERVICE_IMAGE_PREFIX:-EduLearn}/admin-server:latest
+    image: ${SERVICE_IMAGE_PREFIX:-muskangupta8239}/admin-server:latest
     container_name: admin-server
     restart: unless-stopped
     logging: *default-logging
@@ -463,10 +423,7 @@ services:
       start_period: 40s
 
   frontend:
-    build:
-      context: ../edulearn-vite
-      dockerfile: Dockerfile
-    image: ${SERVICE_IMAGE_PREFIX:-EduLearn}/frontend:latest
+    image: ${SERVICE_IMAGE_PREFIX:-muskangupta8239}/frontend:latest
     container_name: frontend
     restart: unless-stopped
     logging: *default-logging
