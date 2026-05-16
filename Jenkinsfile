@@ -24,7 +24,7 @@ pipeline {
 
         // === Image tag strategy: branch + build number + short commit ===
         GIT_SHORT_SHA       = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-        SAFE_BRANCH         = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: 'main').replace('origin/', '')
+        SAFE_BRANCH         = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: 'main').replace('origin/', '').replace('origin1/', '')
         IMAGE_TAG           = "${SAFE_BRANCH.replaceAll('/', '-')}-${BUILD_NUMBER}-${GIT_SHORT_SHA}"
     }
 
