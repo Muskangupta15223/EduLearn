@@ -18,10 +18,9 @@ pipeline {
     environment {
         // === CHANGE THESE TO YOUR VALUES ===
         DOCKER_HUB_USER     = 'muskangupta8239'
-        IMAGE_PREFIX        = "${DOCKER_HUB_USER}"
-        APP_SERVER_USER     = 'ubuntu'
-        APP_SERVER_IP       = credentials('app-server-ip')     // Store as Jenkins Secret Text
-        APP_DIR             = '/opt/edulearn'
+        IMAGE_PREFIX        = "muskangupta8239"
+        APP_SERVER_USER     = "ubuntu"
+        APP_DIR             = "/opt/edulearn"
 
         // === Image tag strategy: branch + build number + short commit ===
         GIT_SHORT_SHA       = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
@@ -120,9 +119,9 @@ pipeline {
             // Only build images on main, develop, or release/* branches
             when {
                 anyOf {
-                    branch 'main'
-                    branch 'develop'
-                    branch pattern: 'release/*', comparator: 'GLOB'
+                    expression { SAFE_BRANCH == 'main' }
+                    expression { SAFE_BRANCH == 'develop' }
+                    expression { SAFE_BRANCH =~ /^release\/.*/ }
                 }
             }
             steps {
@@ -166,9 +165,9 @@ pipeline {
         stage('Docker Push') {
             when {
                 anyOf {
-                    branch 'main'
-                    branch 'develop'
-                    branch pattern: 'release/*', comparator: 'GLOB'
+                    expression { SAFE_BRANCH == 'main' }
+                    expression { SAFE_BRANCH == 'develop' }
+                    expression { SAFE_BRANCH =~ /^release\/.*/ }
                 }
             }
             steps {
@@ -188,21 +187,24 @@ pipeline {
         // ── STAGE 6: DEPLOY ────────────────────────────────────────────────────────
         stage('Deploy') {
             when {
-                branch 'main'   // Only auto-deploy to production from main
+                expression { SAFE_BRANCH == 'main' }
             }
             steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
+                withCredentials([
+                    usernamePassword(credentialsId: 'dockerhub-credentials', passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER'),
+                    string(credentialsId: 'app-server-ip', variable: 'TARGET_IP')
+                ]) {
                     sshagent(['app-server-ssh']) {
                         sh """
-                            echo "🚀 Deploying to EC2 at ${APP_SERVER_IP}..."
+                            echo "🚀 Deploying to EC2 at \$TARGET_IP..."
 
                             # Copy compose file to app server
                             scp -o StrictHostKeyChecking=no \\
                                 backend/docker-compose.yml \\
-                                ${APP_SERVER_USER}@${APP_SERVER_IP}:${APP_DIR}/docker-compose.yml
+                                ${APP_SERVER_USER}@\$TARGET_IP:${APP_DIR}/docker-compose.yml
 
                             # Execute deployment on remote server
-                            ssh -o StrictHostKeyChecking=no ${APP_SERVER_USER}@\$APP_SERVER_IP bash << 'REMOTE_SCRIPT'
+                            ssh -o StrictHostKeyChecking=no ${APP_SERVER_USER}@\$TARGET_IP bash << 'REMOTE_SCRIPT'
                                 set -e
                                 cd ${APP_DIR}
 
@@ -246,26 +248,25 @@ REMOTE_SCRIPT
         // ── STAGE 7: HEALTH CHECK ─────────────────────────────────────────────────
         stage('Health Check') {
             when {
-                anyOf {
-                    branch 'main'
-                    expression { env.GIT_BRANCH == 'origin/main' }
-                }
+                expression { SAFE_BRANCH == 'main' }
             }
             steps {
-                sshagent(['app-server-ssh']) {
-                    script {
-                        def healthOk = sh(
-                            script: """
-                                ssh -o StrictHostKeyChecking=no ${APP_SERVER_USER}@\$APP_SERVER_IP \\
-                                    'curl -sf http://localhost:8080/actuator/health | grep -q "UP"'
-                            """,
-                            returnStatus: true
-                        ) == 0
+                withCredentials([string(credentialsId: 'app-server-ip', variable: 'TARGET_IP')]) {
+                    sshagent(['app-server-ssh']) {
+                        script {
+                            def healthOk = sh(
+                                script: """
+                                    ssh -o StrictHostKeyChecking=no ${APP_SERVER_USER}@\$TARGET_IP \\
+                                        'curl -sf http://localhost:8080/actuator/health | grep -q "UP"'
+                                """,
+                                returnStatus: true
+                            ) == 0
 
-                        if (!healthOk) {
-                            error("❌ Deployment failed health check! The API Gateway is not reporting as UP.")
-                        } else {
-                            echo "✅ Health check passed! The application is running successfully."
+                            if (healthOk) {
+                                echo "✅ Health check passed! Application is live at http://\$TARGET_IP:8080"
+                            } else {
+                                error "❌ Deployment failed health check! The API Gateway is not reporting as UP."
+                            }
                         }
                     }
                 }
