@@ -17,6 +17,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.ArrayList;
@@ -31,6 +33,7 @@ import java.util.Set;
 @RequestMapping
 @Transactional
 public class ModuleController {
+    private static final Logger LOGGER = LoggerFactory.getLogger(ModuleController.class);
 
     private final ModuleRepository moduleRepository;
     private final CourseRepository courseRepository;
@@ -145,7 +148,7 @@ public class ModuleController {
     }
 
     @DeleteMapping("/modules/{id}")
-    public ResponseEntity<?> delete(
+    public ResponseEntity<Object> delete(
             @PathVariable Long id,
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
             @RequestHeader(value = "X-User-Role", required = false) String role
@@ -217,7 +220,7 @@ public class ModuleController {
     }
 
     @DeleteMapping("/modules/{moduleId}/resources/{resourceId}")
-    public ResponseEntity<?> deleteResource(
+    public ResponseEntity<Object> deleteResource(
             @PathVariable Long moduleId,
             @PathVariable Long resourceId,
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
@@ -352,7 +355,7 @@ public class ModuleController {
             event.put("contentTitle", contentTitle);
             kafkaTemplate.send("course-events", objectMapper.writeValueAsString(event));
         } catch (Exception e) {
-            System.err.println("Error publishing course content event: " + e.getMessage());
+            LOGGER.warn("Error publishing course content event for courseId={} contentType={}", course.getId(), contentType, e);
         }
     }
 

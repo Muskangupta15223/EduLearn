@@ -173,7 +173,7 @@ public class LessonController {
     }
 
     @DeleteMapping("/lessons/{id}")
-    public ResponseEntity<?> delete(
+    public ResponseEntity<Object> delete(
             @PathVariable Long id,
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
             @RequestHeader(value = "X-User-Role", required = false) String role
@@ -215,7 +215,7 @@ public class LessonController {
     }
 
     @DeleteMapping("/lessons/{lessonId}/resources/{resourceId}")
-    public ResponseEntity<?> deleteResource(
+    public ResponseEntity<Object> deleteResource(
             @PathVariable Long lessonId,
             @PathVariable Long resourceId,
             @RequestHeader(value = "X-User-Id", required = false) Long userId,

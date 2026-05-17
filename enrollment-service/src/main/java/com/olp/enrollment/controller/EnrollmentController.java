@@ -1,9 +1,9 @@
 package com.olp.enrollment.controller;
 
 import com.olp.enrollment.constant.EnrollmentConstants;
+import com.olp.enrollment.dto.EnrollmentCreateRequest;
 import com.olp.enrollment.dto.EnrollmentDto;
 import com.olp.enrollment.dto.EnrollmentMapper;
-import com.olp.enrollment.model.Enrollment;
 import com.olp.enrollment.service.EnrollmentService;
 import com.olp.enrollment.dto.CertificateResponse;
 import com.olp.enrollment.dto.CertificateVerificationResponse;
@@ -27,8 +27,9 @@ public class EnrollmentController {
 
     @PostMapping
     public ResponseEntity<EnrollmentDto> create(
-            @RequestBody Enrollment enrollment,
+            @RequestBody EnrollmentCreateRequest request,
             @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        var enrollment = request.toEntity();
         if (enrollment.getUserId() == null && userId != null) {
             enrollment.setUserId(userId);
         }
@@ -41,7 +42,7 @@ public class EnrollmentController {
     }
 
     @DeleteMapping("/{courseId}")
-    public ResponseEntity<?> unenroll(
+    public ResponseEntity<Void> unenroll(
             @PathVariable Long courseId,
             @RequestHeader(value = "X-User-Id", required = false) Long userId) {
         requireUserId(userId);

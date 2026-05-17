@@ -37,6 +37,8 @@ import org.springframework.web.client.RestTemplate;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 // import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -128,6 +130,48 @@ class PaymentServiceTest {
         );
 
         assertEquals(HttpStatus.FORBIDDEN, ex.getStatus());
+    }
+
+    @Test
+    void verifyRazorpaySuccessRestoresEnrollmentBeforeReturning() {
+        PaymentTransaction tx = new PaymentTransaction();
+        tx.setUserId(4L);
+        tx.setEnrollmentId(55L);
+        tx.setStatus(PaymentStatus.SUCCESS);
+        when(repository.findByGatewayTransactionId("order_3")).thenReturn(Optional.of(tx));
+
+        RazorpayVerifyRequest request = new RazorpayVerifyRequest();
+        request.setRazorpayOrderId("order_3");
+
+        PaymentResponse response = paymentService.verifyRazorpaySignature(request, 4L);
+
+        assertEquals(PaymentStatus.SUCCESS, response.getStatus());
+        verify(restTemplate).put("http://enrollment-service/enrollments/55/status?status=ACTIVE", null);
+    }
+
+    @Test
+    void createRazorpayOrderSuccessConflictRestoresEnrollmentAccess() {
+        PaymentTransaction existing = new PaymentTransaction();
+        existing.setUserId(4L);
+        existing.setCourseId(1L);
+        existing.setEnrollmentId(55L);
+        existing.setStatus(PaymentStatus.SUCCESS);
+
+        RazorpayOrderRequest request = new RazorpayOrderRequest();
+        request.setCourseId(1L);
+        request.setAmount(new BigDecimal("399.00"));
+        request.setPlan("COURSE_1");
+
+        when(repository.findFirstByUserIdAndCourseIdAndStatusInOrderByCreatedAtDesc(eq(4L), eq(1L), any()))
+                .thenReturn(Optional.of(existing));
+
+        PaymentException ex = assertThrows(
+                PaymentException.class,
+                () -> paymentService.createRazorpayOrder(request, 4L, "4-course-1")
+        );
+
+        assertEquals(HttpStatus.CONFLICT, ex.getStatus());
+        verify(restTemplate).put("http://enrollment-service/enrollments/55/status?status=ACTIVE", null);
     }
 
     @Test

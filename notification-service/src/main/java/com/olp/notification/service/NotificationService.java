@@ -4,17 +4,21 @@ import com.olp.notification.dto.TargetedNotificationRequest;
 import com.olp.notification.dto.TargetedNotificationResponse;
 import com.olp.notification.model.NotificationLog;
 import com.olp.notification.repository.NotificationLogRepository;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.LinkedHashSet;
-import java.util.Map;
+import java.util.List;
 import java.util.Optional;
 
 @Service
 public class NotificationService {
+    private static final ParameterizedTypeReference<List<NotificationUser>> NOTIFICATION_USER_LIST_TYPE =
+            new ParameterizedTypeReference<>() {};
 
     private final NotificationLogRepository repository;
     private final RestTemplate restTemplate;
@@ -81,19 +85,19 @@ public class NotificationService {
                 continue;
             }
             try {
-                List<?> users = restTemplate.getForObject(
+                ResponseEntity<List<NotificationUser>> response = restTemplate.exchange(
                         "http://user-service/users?role=" + role.trim().toUpperCase(),
-                        List.class
+                        HttpMethod.GET,
+                        null,
+                        NOTIFICATION_USER_LIST_TYPE
                 );
+                List<NotificationUser> users = response.getBody();
                 if (users == null) {
                     continue;
                 }
-                for (Object userObj : users) {
-                    if (userObj instanceof Map<?, ?> user) {
-                        Object id = user.get("id");
-                        if (id != null) {
-                            recipients.add(Long.valueOf(id.toString()));
-                        }
+                for (NotificationUser user : users) {
+                    if (user != null && user.id() != null) {
+                        recipients.add(user.id());
                     }
                 }
             } catch (Exception ignored) {
@@ -115,5 +119,8 @@ public class NotificationService {
         response.setRecipients(recipients.size());
         response.setRoles(roles);
         return response;
+    }
+
+    private record NotificationUser(Long id) {
     }
 }

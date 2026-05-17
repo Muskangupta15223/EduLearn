@@ -1,0 +1,12 @@
+  admin-server[m
+  api-gateway[m
+  auth-service[m
+  config-service[m
+  course-service[m
+  dev[m
+  discovery-service[m
+  enrollment-service[m
+* [32mmain[m
+  notification-service[m
+  payment-service[m
+  user-service[m

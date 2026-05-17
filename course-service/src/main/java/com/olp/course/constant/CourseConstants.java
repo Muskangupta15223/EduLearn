@@ -13,7 +13,13 @@ public final class CourseConstants {
     public static final String MSG_MUST_BE_ENROLLED_TO_VIEW = "You must be enrolled to view discussions";
     public static final String MSG_MUST_BE_ENROLLED_TO_REPLY = "You must be enrolled to reply to discussions";
     public static final String MSG_MUST_BE_ENROLLED_TO_VOTE = "You must be enrolled to vote on discussions";
+    public static final String MSG_THREAD_NOT_FOUND = "Thread not found";
     
     public static final String KEY_ERROR = "error";
+
+    public static final String EVENT_COURSE_APPROVAL_REQUEST = "COURSE_APPROVAL_REQUEST";
+
+    public static final String STATUS_PENDING = "PENDING";
     public static final String STATUS_PUBLISHED = "PUBLISHED";
+    public static final String STATUS_APPROVED = "APPROVED";
 }

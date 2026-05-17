@@ -1,16 +1,28 @@
 package com.olp.course.controller;
 
 import com.olp.course.dto.QuizAttemptBreakdownResponse;
-import com.olp.course.model.Question;
-import com.olp.course.model.Quiz;
-import com.olp.course.model.QuizAttempt;
+import com.olp.course.dto.QuizDtos;
+import com.olp.course.dto.QuizDtos.BestScoreResponse;
+import com.olp.course.dto.QuizDtos.QuestionRequest;
+import com.olp.course.dto.QuizDtos.QuestionResponse;
+import com.olp.course.dto.QuizDtos.QuizAttemptResponse;
+import com.olp.course.dto.QuizDtos.QuizAttemptSubmitRequest;
+import com.olp.course.dto.QuizDtos.QuizRequest;
+import com.olp.course.dto.QuizDtos.QuizResponse;
 import com.olp.course.service.QuizService;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 public class QuizController {
@@ -21,44 +33,44 @@ public class QuizController {
         this.quizService = quizService;
     }
 
-    // ── Quiz CRUD ──
-
     @PostMapping("/courses/{courseId}/quizzes")
-    public ResponseEntity<Quiz> createQuiz(
+    public ResponseEntity<QuizResponse> createQuiz(
             @PathVariable Long courseId,
-            @RequestBody Quiz quiz,
+            @RequestBody QuizRequest request,
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
             @RequestHeader(value = "X-User-Role", required = false) String role
     ) {
-        return ResponseEntity.ok(quizService.createQuiz(courseId, quiz, userId, role));
+        return ResponseEntity.ok(QuizResponse.from(quizService.createQuiz(courseId, request.toEntity(), userId, role)));
     }
 
     @GetMapping("/courses/{courseId}/quizzes")
-    public ResponseEntity<List<Quiz>> getQuizzesByCourse(@PathVariable Long courseId) {
-        return ResponseEntity.ok(quizService.getQuizzesByCourse(courseId));
+    public ResponseEntity<List<QuizResponse>> getQuizzesByCourse(@PathVariable Long courseId) {
+        return ResponseEntity.ok(QuizDtos.toQuizResponses(quizService.getQuizzesByCourse(courseId)));
     }
 
     @GetMapping("/quizzes/{id}")
-    public ResponseEntity<Quiz> getQuizById(@PathVariable Long id) {
+    public ResponseEntity<QuizResponse> getQuizById(@PathVariable Long id) {
         return quizService.getQuizById(id)
+                .map(QuizResponse::from)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @PutMapping("/quizzes/{id}")
-    public ResponseEntity<Quiz> updateQuiz(
+    public ResponseEntity<QuizResponse> updateQuiz(
             @PathVariable Long id,
-            @RequestBody Quiz quiz,
+            @RequestBody QuizRequest request,
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
             @RequestHeader(value = "X-User-Role", required = false) String role
     ) {
-        return quizService.updateQuiz(id, quiz, userId, role)
+        return quizService.updateQuiz(id, request.toEntity(), userId, role)
+                .map(QuizResponse::from)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @DeleteMapping("/quizzes/{id}")
-    public ResponseEntity<?> deleteQuiz(
+    public ResponseEntity<Void> deleteQuiz(
             @PathVariable Long id,
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
             @RequestHeader(value = "X-User-Role", required = false) String role
@@ -69,32 +81,31 @@ public class QuizController {
         return ResponseEntity.notFound().build();
     }
 
-    // ── Question CRUD ──
-
     @PostMapping("/quizzes/{quizId}/questions")
-    public ResponseEntity<Question> addQuestion(
+    public ResponseEntity<QuestionResponse> addQuestion(
             @PathVariable Long quizId,
-            @RequestBody Question question,
+            @RequestBody QuestionRequest request,
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
             @RequestHeader(value = "X-User-Role", required = false) String role
     ) {
-        return ResponseEntity.ok(quizService.addQuestion(quizId, question, userId, role));
+        return ResponseEntity.ok(QuestionResponse.from(quizService.addQuestion(quizId, request.toEntity(null), userId, role)));
     }
 
     @PutMapping("/questions/{qId}")
-    public ResponseEntity<Question> updateQuestion(
+    public ResponseEntity<QuestionResponse> updateQuestion(
             @PathVariable Long qId,
-            @RequestBody Question question,
+            @RequestBody QuestionRequest request,
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
             @RequestHeader(value = "X-User-Role", required = false) String role
     ) {
-        return quizService.updateQuestion(qId, question, userId, role)
+        return quizService.updateQuestion(qId, request.toEntity(null), userId, role)
+                .map(QuestionResponse::from)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @DeleteMapping("/questions/{qId}")
-    public ResponseEntity<?> deleteQuestion(
+    public ResponseEntity<Void> deleteQuestion(
             @PathVariable Long qId,
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
             @RequestHeader(value = "X-User-Role", required = false) String role
@@ -105,57 +116,61 @@ public class QuizController {
         return ResponseEntity.notFound().build();
     }
 
-    // ── Attempts ──
-
     @PostMapping("/quizzes/{quizId}/attempts")
-    public ResponseEntity<QuizAttempt> startAttempt(@PathVariable Long quizId,
-                                                     @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+    public ResponseEntity<QuizAttemptResponse> startAttempt(
+            @PathVariable Long quizId,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId
+    ) {
         if (userId == null) {
             return ResponseEntity.status(401).build();
         }
-        return ResponseEntity.ok(quizService.startAttempt(quizId, userId));
+        return ResponseEntity.ok(QuizAttemptResponse.from(quizService.startAttempt(quizId, userId)));
     }
 
     @PostMapping("/attempts/{attemptId}/submit")
-    public ResponseEntity<QuizAttempt> submitAttempt(@PathVariable Long attemptId,
-                                                      @RequestBody Map<String, Object> body) {
-        Map<Long, String> answers = new java.util.HashMap<>();
-        Object answersObj = body.get("answers");
-        if (answersObj instanceof Map) {
-            ((Map<?, ?>) answersObj).forEach((k, v) -> answers.put(Long.valueOf(k.toString()), v.toString()));
-        }
-        return ResponseEntity.ok(quizService.submitAttempt(attemptId, answers));
+    public ResponseEntity<QuizAttemptResponse> submitAttempt(
+            @PathVariable Long attemptId,
+            @RequestBody QuizAttemptSubmitRequest request
+    ) {
+        return ResponseEntity.ok(QuizAttemptResponse.from(quizService.submitAttempt(attemptId, request.normalizedAnswers())));
     }
 
     @GetMapping("/quizzes/{quizId}/attempts/me")
-    public ResponseEntity<List<QuizAttempt>> getMyAttempts(@PathVariable Long quizId,
-                                                            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+    public ResponseEntity<List<QuizAttemptResponse>> getMyAttempts(
+            @PathVariable Long quizId,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId
+    ) {
         if (userId == null) {
             return ResponseEntity.status(401).build();
         }
-        return ResponseEntity.ok(quizService.getMyAttempts(quizId, userId));
+        return ResponseEntity.ok(QuizDtos.toAttemptResponses(quizService.getMyAttempts(quizId, userId)));
     }
 
     @GetMapping("/quizzes/{quizId}/best-score/me")
-    public ResponseEntity<Map<String, Object>> getBestScore(@PathVariable Long quizId,
-                                                             @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+    public ResponseEntity<BestScoreResponse> getBestScore(
+            @PathVariable Long quizId,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId
+    ) {
         if (userId == null) {
             return ResponseEntity.status(401).build();
         }
-        List<QuizAttempt> attempts = quizService.getMyAttempts(quizId, userId);
+        List<com.olp.course.model.QuizAttempt> attempts = quizService.getMyAttempts(quizId, userId);
         if (attempts.isEmpty()) {
-            return ResponseEntity.ok(Map.of("bestScore", 0, "attempts", 0));
+            return ResponseEntity.ok(new BestScoreResponse(0, 0));
         }
-        int best = attempts.stream().map(QuizAttempt::getScore).max(Comparator.naturalOrder()).orElse(0);
-        return ResponseEntity.ok(Map.of("bestScore", best, "attempts", attempts.size()));
+        int best = attempts.stream().map(com.olp.course.model.QuizAttempt::getScore).max(Comparator.naturalOrder()).orElse(0);
+        return ResponseEntity.ok(new BestScoreResponse(best, attempts.size()));
     }
 
     @PutMapping("/quizzes/{id}/publish")
-    public ResponseEntity<Quiz> publishQuiz(@PathVariable Long id,
-                                            @RequestParam(defaultValue = "true") boolean published,
-                                            @RequestHeader(value = "X-User-Id", required = false) Long userId,
-                                            @RequestHeader(value = "X-User-Role", required = false) String role) {
+    public ResponseEntity<QuizResponse> publishQuiz(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "true") boolean published,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId,
+            @RequestHeader(value = "X-User-Role", required = false) String role
+    ) {
         return quizService.publishQuiz(id, userId, role, published)
+                .map(QuizResponse::from)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
@@ -164,7 +179,8 @@ public class QuizController {
     public ResponseEntity<QuizAttemptBreakdownResponse> getAttemptBreakdown(
             @PathVariable Long attemptId,
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
-            @RequestHeader(value = "X-User-Role", required = false) String role) {
+            @RequestHeader(value = "X-User-Role", required = false) String role
+    ) {
         return ResponseEntity.ok(quizService.getAttemptBreakdown(attemptId, userId, role));
     }
 }

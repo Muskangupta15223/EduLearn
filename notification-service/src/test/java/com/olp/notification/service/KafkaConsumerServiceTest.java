@@ -11,11 +11,14 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.client.RestTemplate;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 
 @ExtendWith(MockitoExtension.class)
 class KafkaConsumerServiceTest {
@@ -120,6 +123,9 @@ class KafkaConsumerServiceTest {
         String message = objectMapper.writeValueAsString(Map.of(
                 "eventType", "QUIZ_RESULT",
                 "userId", 1,
+                "instructorId", 7,
+                "courseId", 55,
+                "courseTitle", "Java 101",
                 "quizTitle", "Mid-Term Quiz",
                 "score", 8,
                 "maxScore", 10,
@@ -130,9 +136,40 @@ class KafkaConsumerServiceTest {
         kafkaConsumerService.consumeCourseEvents(message);
 
         ArgumentCaptor<NotificationLog> captor = ArgumentCaptor.forClass(NotificationLog.class);
-        verify(repository).save(captor.capture());
-        assertEquals("Quiz Passed", captor.getValue().getTitle());
-        assertTrue(captor.getValue().getMessage().contains("8/10"));
+        verify(repository, times(2)).save(captor.capture());
+        assertEquals("Quiz Passed", captor.getAllValues().get(0).getTitle());
+        assertTrue(captor.getAllValues().get(0).getMessage().contains("8/10"));
+        assertEquals("Student Quiz Submission", captor.getAllValues().get(1).getTitle());
+        assertTrue(captor.getAllValues().get(1).getMessage().contains("Mid-Term Quiz"));
+    }
+
+    @Test
+    void consumeCourseEvents_quizPublished_notifiesEnrolledStudents() throws Exception {
+        when(repository.save(any(NotificationLog.class))).thenAnswer(i -> i.getArgument(0));
+        when(restTemplate.getForEntity("http://enrollment-service/enrollments/course/22", List.class))
+                .thenReturn(new ResponseEntity<>(
+                        java.util.List.of(
+                                Map.of("userId", 11, "status", "ACTIVE"),
+                                Map.of("userId", 12, "status", "COMPLETED"),
+                                Map.of("userId", 13, "status", "PENDING_PAYMENT")
+                        ),
+                        HttpStatus.OK
+                ));
+
+        String message = objectMapper.writeValueAsString(Map.of(
+                "eventType", "QUIZ_PUBLISHED",
+                "courseId", 22,
+                "courseTitle", "Spring Boot",
+                "quizTitle", "Module 1 Quiz"
+        ));
+
+        kafkaConsumerService.consumeCourseEvents(message);
+
+        ArgumentCaptor<NotificationLog> captor = ArgumentCaptor.forClass(NotificationLog.class);
+        verify(repository, times(2)).save(captor.capture());
+        assertEquals("New Quiz Available", captor.getAllValues().get(0).getTitle());
+        assertEquals(11L, captor.getAllValues().get(0).getUserId());
+        assertEquals(12L, captor.getAllValues().get(1).getUserId());
     }
 
     @Test

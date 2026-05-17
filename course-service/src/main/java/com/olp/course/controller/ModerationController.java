@@ -38,14 +38,14 @@ public class ModerationController {
     }
 
     @GetMapping("/moderation/course-reports")
-    public ResponseEntity<?> getCourseReports(
+    public ResponseEntity<java.util.List<CourseReport>> getCourseReports(
             @RequestParam(value = "status", required = false) ReportStatus status,
             @RequestHeader(value = "X-User-Role", required = false) String role) {
         return ResponseEntity.ok(moderationService.getCourseReports(status, role));
     }
 
     @GetMapping("/moderation/comment-reports")
-    public ResponseEntity<?> getCommentReports(
+    public ResponseEntity<java.util.List<CommentReport>> getCommentReports(
             @RequestParam(value = "status", required = false) ReportStatus status,
             @RequestHeader(value = "X-User-Role", required = false) String role) {
         return ResponseEntity.ok(moderationService.getCommentReports(status, role));

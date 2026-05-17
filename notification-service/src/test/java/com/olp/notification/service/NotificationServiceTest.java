@@ -2,24 +2,39 @@ package com.olp.notification.service;
 
 import com.olp.notification.model.NotificationLog;
 import com.olp.notification.repository.NotificationLogRepository;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.web.client.RestTemplate;
-
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.client.RestTemplate;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class NotificationServiceTest {
+
+    @SuppressWarnings("unchecked")
+    private static ParameterizedTypeReference<List<?>> anyNotificationUserListType() {
+        return any(ParameterizedTypeReference.class);
+    }
 
     @Mock
     private NotificationLogRepository repository;
@@ -129,12 +144,33 @@ class NotificationServiceTest {
 
     @Test
     void broadcast_callsSendTargetedNotifications() {
-        // broadcast delegates to sendTargetedNotifications with all roles
-        // RestTemplate will throw since no service is running - but the method shouldn't crash
-        when(restTemplate.getForObject(anyString(), eq(List.class))).thenReturn(null);
+        when(restTemplate.exchange(
+                anyString(),
+                eq(HttpMethod.GET),
+                isNull(),
+                anyNotificationUserListType()
+        )).thenReturn(ResponseEntity.ok(null));
 
         notificationService.broadcast("Title", "Message", "announcement");
 
-        // Should not throw and should attempt to fetch users for each role
+        verify(restTemplate).exchange(
+                eq("http://user-service/users?role=STUDENT"),
+                eq(HttpMethod.GET),
+                isNull(),
+                anyNotificationUserListType()
+        );
+        verify(restTemplate).exchange(
+                eq("http://user-service/users?role=INSTRUCTOR"),
+                eq(HttpMethod.GET),
+                isNull(),
+                anyNotificationUserListType()
+        );
+        verify(restTemplate).exchange(
+                eq("http://user-service/users?role=ADMIN"),
+                eq(HttpMethod.GET),
+                isNull(),
+                anyNotificationUserListType()
+        );
+        verify(repository, never()).save(any(NotificationLog.class));
     }
 }

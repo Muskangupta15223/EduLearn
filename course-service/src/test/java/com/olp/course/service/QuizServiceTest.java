@@ -28,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -147,29 +148,38 @@ class QuizServiceTest {
         attempt.setUserId(6L);
         attempt.setStartedAt(LocalDateTime.now().minusMinutes(1));
 
+        Course course = new Course();
+        course.setId(12L);
+        course.setTitle("Java Basics");
+        course.setInstructorId(99L);
+
         when(attemptRepository.findById(50L)).thenReturn(Optional.of(attempt));
         when(questionRepository.findByQuizId(9L)).thenReturn(List.of(question));
+        when(courseRepository.findById(12L)).thenReturn(Optional.of(course));
         when(attemptRepository.save(any(QuizAttempt.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         QuizAttempt saved = quizService.submitAttempt(50L, new HashMap<>(java.util.Map.of(100L, "A")));
 
         assertEquals(2, saved.getScore());
         verify(kafkaTemplate).send(eq("course-events"), contains("\"eventType\":\"QUIZ_RESULT\""));
+        verify(kafkaTemplate).send(eq("course-events"), contains("\"instructorId\":99"));
     }
 
     @Test
-    void createQuizPublishesQuizCreatedEventWithCourseTitle() {
+    void createQuizPublishesQuizAvailabilityEventWhenQuizIsPublished() {
         Course course = new Course();
         course.setId(12L);
         course.setTitle("Java Basics");
 
         Quiz quiz = new Quiz();
         quiz.setTitle("Variables");
+        quiz.setIsPublished(true);
 
         Quiz saved = new Quiz();
         saved.setId(91L);
         saved.setCourseId(12L);
         saved.setTitle("Variables");
+        saved.setIsPublished(true);
 
         when(accessControlService.getOwnedCourse(12L, 6L, "INSTRUCTOR")).thenReturn(course);
         when(quizRepository.save(any(Quiz.class))).thenReturn(saved);
@@ -177,7 +187,31 @@ class QuizServiceTest {
         Quiz result = quizService.createQuiz(12L, quiz, 6L, "INSTRUCTOR");
 
         assertEquals(91L, result.getId());
-        verify(kafkaTemplate).send(eq("course-events"), contains("\"eventType\":\"QUIZ_CREATED\""));
+        verify(kafkaTemplate).send(eq("course-events"), contains("\"eventType\":\"QUIZ_PUBLISHED\""));
         verify(kafkaTemplate).send(eq("course-events"), contains("\"courseTitle\":\"Java Basics\""));
+    }
+
+    @Test
+    void createQuizDoesNotNotifyStudentsWhenQuizIsDraft() {
+        Course course = new Course();
+        course.setId(12L);
+        course.setTitle("Java Basics");
+
+        Quiz quiz = new Quiz();
+        quiz.setTitle("Variables");
+        quiz.setIsPublished(false);
+
+        Quiz saved = new Quiz();
+        saved.setId(91L);
+        saved.setCourseId(12L);
+        saved.setTitle("Variables");
+        saved.setIsPublished(false);
+
+        when(accessControlService.getOwnedCourse(12L, 6L, "INSTRUCTOR")).thenReturn(course);
+        when(quizRepository.save(any(Quiz.class))).thenReturn(saved);
+
+        quizService.createQuiz(12L, quiz, 6L, "INSTRUCTOR");
+
+        verify(kafkaTemplate, never()).send(eq("course-events"), contains("\"eventType\":\"QUIZ_PUBLISHED\""));
     }
 }

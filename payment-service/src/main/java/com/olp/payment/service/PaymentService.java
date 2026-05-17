@@ -227,6 +227,17 @@ public class PaymentService {
     }
   }
 
+  private void restoreEnrollmentAccess(PaymentTransaction tx) {
+    if (tx == null) {
+      return;
+    }
+    if (tx.getEnrollmentId() != null && tx.getEnrollmentId() > 0) {
+      markEnrollmentPaid(tx.getEnrollmentId());
+      return;
+    }
+    ensureEnrollmentActive(tx);
+  }
+
   public com.olp.payment.dto.RazorpayOrderResponse createRazorpayOrder(
           com.olp.payment.dto.RazorpayOrderRequest request,
           Long userId,
@@ -256,6 +267,7 @@ public class PaymentService {
                   request.getCourseId(),
                   List.of(PaymentStatus.SUCCESS)
           ).ifPresent(existing -> {
+              restoreEnrollmentAccess(existing);
               throw new PaymentException("You already have access to this course", HttpStatus.CONFLICT);
           });
 
@@ -341,6 +353,7 @@ public class PaymentService {
           }
 
           if (tx.getStatus() == PaymentStatus.SUCCESS) {
+              restoreEnrollmentAccess(tx);
               return mapToResponse(tx);
           }
 

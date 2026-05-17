@@ -1,13 +1,22 @@
 package com.olp.course.controller;
 
-import com.olp.course.model.Assignment;
-import com.olp.course.model.AssignmentSubmission;
+import com.olp.course.dto.AssignmentDtos;
+import com.olp.course.dto.AssignmentDtos.AssignmentRequest;
+import com.olp.course.dto.AssignmentDtos.AssignmentResponse;
+import com.olp.course.dto.AssignmentDtos.AssignmentSubmissionRequest;
+import com.olp.course.dto.AssignmentDtos.AssignmentSubmissionResponse;
+import com.olp.course.dto.AssignmentDtos.GradeSubmissionRequest;
 import com.olp.course.service.AssignmentService;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-
 import java.util.List;
-import java.util.Map;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 public class AssignmentController {
@@ -18,44 +27,48 @@ public class AssignmentController {
         this.assignmentService = assignmentService;
     }
 
-    // ── Assignment CRUD ──
-
     @PostMapping("/courses/{courseId}/assignments")
-    public ResponseEntity<Assignment> create(
+    public ResponseEntity<AssignmentResponse> create(
             @PathVariable Long courseId,
-            @RequestBody Assignment assignment,
+            @RequestBody AssignmentRequest request,
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
             @RequestHeader(value = "X-User-Role", required = false) String role
     ) {
-        return ResponseEntity.ok(assignmentService.createAssignment(courseId, assignment, userId, role));
+        return ResponseEntity.ok(
+                AssignmentResponse.from(
+                        assignmentService.createAssignment(courseId, request.toEntity(), userId, role)
+                )
+        );
     }
 
     @GetMapping("/courses/{courseId}/assignments")
-    public ResponseEntity<List<Assignment>> getByCourse(@PathVariable Long courseId) {
-        return ResponseEntity.ok(assignmentService.getAssignmentsByCourse(courseId));
+    public ResponseEntity<List<AssignmentResponse>> getByCourse(@PathVariable Long courseId) {
+        return ResponseEntity.ok(AssignmentDtos.toAssignmentResponses(assignmentService.getAssignmentsByCourse(courseId)));
     }
 
     @GetMapping("/assignments/{id}")
-    public ResponseEntity<Assignment> getById(@PathVariable Long id) {
+    public ResponseEntity<AssignmentResponse> getById(@PathVariable Long id) {
         return assignmentService.getAssignmentById(id)
+                .map(AssignmentResponse::from)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @PutMapping("/assignments/{id}")
-    public ResponseEntity<Assignment> update(
+    public ResponseEntity<AssignmentResponse> update(
             @PathVariable Long id,
-            @RequestBody Assignment assignment,
+            @RequestBody AssignmentRequest request,
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
             @RequestHeader(value = "X-User-Role", required = false) String role
     ) {
-        return assignmentService.updateAssignment(id, assignment, userId, role)
+        return assignmentService.updateAssignment(id, request.toEntity(), userId, role)
+                .map(AssignmentResponse::from)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @DeleteMapping("/assignments/{id}")
-    public ResponseEntity<?> delete(
+    public ResponseEntity<Void> delete(
             @PathVariable Long id,
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
             @RequestHeader(value = "X-User-Role", required = false) String role
@@ -66,42 +79,49 @@ public class AssignmentController {
         return ResponseEntity.notFound().build();
     }
 
-    // ── Submissions ──
-
     @PostMapping("/assignments/{id}/submit")
-    public ResponseEntity<AssignmentSubmission> submit(@PathVariable Long id,
-                                                        @RequestBody Map<String, String> body,
-                                                        @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+    public ResponseEntity<AssignmentSubmissionResponse> submit(
+            @PathVariable Long id,
+            @RequestBody AssignmentSubmissionRequest request,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId
+    ) {
         if (userId == null) {
             return ResponseEntity.status(401).build();
         }
-        String submissionText = body.getOrDefault("submissionText", "");
-        String fileUrl = body.getOrDefault("fileUrl", null);
-        return ResponseEntity.ok(assignmentService.submitAssignment(id, userId, submissionText, fileUrl));
+        String submissionText = request.submissionText() == null ? "" : request.submissionText();
+        return ResponseEntity.ok(
+                AssignmentSubmissionResponse.from(
+                        assignmentService.submitAssignment(id, userId, submissionText, request.fileUrl())
+                )
+        );
     }
 
     @GetMapping("/assignments/{id}/submission/me")
-    public ResponseEntity<AssignmentSubmission> getMySubmission(@PathVariable Long id,
-                                                                  @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+    public ResponseEntity<AssignmentSubmissionResponse> getMySubmission(
+            @PathVariable Long id,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId
+    ) {
         if (userId == null) {
             return ResponseEntity.status(401).build();
         }
         return assignmentService.getMySubmission(id, userId)
+                .map(AssignmentSubmissionResponse::from)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @GetMapping("/assignments/{id}/submissions")
-    public ResponseEntity<List<AssignmentSubmission>> getSubmissions(@PathVariable Long id) {
-        return ResponseEntity.ok(assignmentService.getSubmissionsByAssignment(id));
+    public ResponseEntity<List<AssignmentSubmissionResponse>> getSubmissions(@PathVariable Long id) {
+        return ResponseEntity.ok(AssignmentDtos.toSubmissionResponses(assignmentService.getSubmissionsByAssignment(id)));
     }
 
     @PutMapping("/submissions/{subId}/grade")
-    public ResponseEntity<AssignmentSubmission> gradeSubmission(@PathVariable Long subId,
-                                                                  @RequestBody Map<String, Object> body) {
-        Integer score = body.get("score") != null ? Integer.valueOf(body.get("score").toString()) : null;
-        String feedback = body.get("feedback") != null ? body.get("feedback").toString() : null;
-        return assignmentService.gradeSubmission(subId, score, feedback)
+    public ResponseEntity<AssignmentSubmissionResponse> gradeSubmission(
+            @PathVariable Long subId,
+            @RequestBody GradeSubmissionRequest request
+    ) {
+        return assignmentService.gradeSubmission(subId, request.score(), request.feedback())
+                .map(AssignmentSubmissionResponse::from)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }

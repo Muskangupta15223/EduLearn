@@ -1,6 +1,7 @@
 package com.olp.course.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.olp.course.constant.CourseConstants;
 import com.olp.course.model.Course;
 import com.olp.course.model.Lesson;
 import com.olp.course.model.LessonResource;
@@ -31,6 +32,13 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class CourseService {
+    private static final String REVIEW_STATUS_UNPUBLISHED = "UNPUBLISHED";
+    private static final String STATUS_DRAFT = "DRAFT";
+    private static final String STATUS_REJECTED = "REJECTED";
+    private static final String REVIEW_STATUS_REJECTED = "REJECTED";
+    private static final String EVENT_COURSE_APPROVED = "COURSE_APPROVED";
+    private static final String EVENT_COURSE_REJECTED = "COURSE_REJECTED";
+    private static final String EVENT_COURSE_UNPUBLISHED = "COURSE_UNPUBLISHED";
 
     private final CourseRepository courseRepository;
     private final ModuleRepository moduleRepository;
@@ -71,7 +79,7 @@ public class CourseService {
         course.setInstructorName(instructorName == null || instructorName.isBlank() ? "Instructor" : instructorName);
         Course saved = courseRepository.save(course);
         if (accessControlService.isInstructor(role)) {
-            publishCourseEvent(saved, "COURSE_APPROVAL_REQUEST", "CREATED");
+            publishCourseEvent(saved, CourseConstants.EVENT_COURSE_APPROVAL_REQUEST, "CREATED");
         }
         return saved;
     }
@@ -86,7 +94,7 @@ public class CourseService {
             }
             return enrichInstructorVerification(hydrateCourseContent(courseRepository.findByInstructorId(userId)));
         }
-        return enrichInstructorVerification(hydrateCourseContent(courseRepository.findByStatus("PUBLISHED")));
+        return enrichInstructorVerification(hydrateCourseContent(courseRepository.findByStatus(CourseConstants.STATUS_PUBLISHED)));
     }
 
     @Transactional
@@ -103,52 +111,39 @@ public class CourseService {
             if (current.getInstructorId() != null && current.getInstructorId().equals(userId)) {
                 return course.map(this::enrichInstructorVerification);
             }
-            if ("PUBLISHED".equals(current.getStatus())) {
+            if (CourseConstants.STATUS_PUBLISHED.equals(current.getStatus())) {
                 return course.map(this::enrichInstructorVerification);
             }
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You do not have access to this course");
         }
-        if (!"PUBLISHED".equals(course.get().getStatus())) {
+        if (!CourseConstants.STATUS_PUBLISHED.equals(course.get().getStatus())) {
             return Optional.empty();
         }
         return course.map(this::enrichInstructorVerification);
     }
 
     public List<Course> getPublishedCourses() {
-        return enrichInstructorVerification(hydrateCourseContent(courseRepository.findByStatus("PUBLISHED")));
+        return enrichInstructorVerification(hydrateCourseContent(courseRepository.findByStatus(CourseConstants.STATUS_PUBLISHED)));
     }
 
     public List<Course> getPublishedCourses(String category, String level, Long instructorId, String language, String query) {
-        return enrichInstructorVerification(hydrateCourseContent(courseRepository.findByStatus("PUBLISHED")).stream()
-                .filter(course -> category == null || category.isBlank() || (course.getCategory() != null && category.equalsIgnoreCase(course.getCategory())))
-                .filter(course -> level == null || level.isBlank() || level.equalsIgnoreCase(course.getLevel()))
-                .filter(course -> instructorId == null || instructorId.equals(course.getInstructorId()))
-                .filter(course -> language == null || language.isBlank() || (course.getLanguage() != null && language.equalsIgnoreCase(course.getLanguage())))
-                .filter(course -> {
-                    if (query == null || query.isBlank()) {
-                        return true;
-                    }
-                    String normalizedQuery = query.toLowerCase();
-                    return (course.getTitle() != null && course.getTitle().toLowerCase().contains(normalizedQuery))
-                            || (course.getDescription() != null && course.getDescription().toLowerCase().contains(normalizedQuery))
-                            || (course.getCategory() != null && course.getCategory().toLowerCase().contains(normalizedQuery))
-                            || (course.getLanguage() != null && course.getLanguage().toLowerCase().contains(normalizedQuery))
-                            || (course.getInstructorName() != null && course.getInstructorName().toLowerCase().contains(normalizedQuery));
-                })
+        return enrichInstructorVerification(hydrateCourseContent(courseRepository.findByStatus(CourseConstants.STATUS_PUBLISHED)).stream()
+                .filter(course -> matchesPublishedFilters(course, category, level, instructorId, language))
+                .filter(course -> matchesCourseQuery(course, query))
                 .collect(Collectors.toList()));
     }
 
     public List<Course> getFeaturedCourses() {
-        List<Course> courses = hydrateCourseContent(courseRepository.findByStatus("PUBLISHED"));
+        List<Course> courses = hydrateCourseContent(courseRepository.findByStatus(CourseConstants.STATUS_PUBLISHED));
         return enrichInstructorVerification(courses.size() > 6 ? courses.subList(0, 6) : courses);
     }
 
     public List<Course> getCoursesByCategory(String category) {
-        return enrichInstructorVerification(hydrateCourseContent(courseRepository.findByCategoryAndStatus(category, "PUBLISHED")));
+        return enrichInstructorVerification(hydrateCourseContent(courseRepository.findByCategoryAndStatus(category, CourseConstants.STATUS_PUBLISHED)));
     }
 
     public List<Course> searchCourses(String query) {
-        return enrichInstructorVerification(hydrateCourseContent(courseRepository.findByTitleContainingIgnoreCaseAndStatus(query, "PUBLISHED")));
+        return enrichInstructorVerification(hydrateCourseContent(courseRepository.findByTitleContainingIgnoreCaseAndStatus(query, CourseConstants.STATUS_PUBLISHED)));
     }
 
     @Transactional
@@ -162,7 +157,7 @@ public class CourseService {
 
     public List<Course> getPendingCourses(String role) {
         requireAdmin(role);
-        return enrichInstructorVerification(hydrateCourseContent(courseRepository.findByStatus("PENDING")));
+        return enrichInstructorVerification(hydrateCourseContent(courseRepository.findByStatus(CourseConstants.STATUS_PENDING)));
     }
 
     public List<Course> getAllCoursesForAdminAnalytics(String role) {
@@ -184,7 +179,7 @@ public class CourseService {
             }
             Course saved = courseRepository.save(course);
             if (accessControlService.isInstructor(role)) {
-                publishCourseEvent(saved, "COURSE_APPROVAL_REQUEST", "UPDATED");
+                publishCourseEvent(saved, CourseConstants.EVENT_COURSE_APPROVAL_REQUEST, "UPDATED");
             }
             return saved;
         });
@@ -193,14 +188,14 @@ public class CourseService {
     public Optional<Course> publishCourse(Long id, Long userId, String role) {
         return courseRepository.findById(id).map(course -> {
             accessControlService.requireOwnership(course, userId, role);
-            course.setStatus("PENDING");
-            course.setReviewStatus("PENDING");
+            course.setStatus(CourseConstants.STATUS_PENDING);
+            course.setReviewStatus(CourseConstants.STATUS_PENDING);
             course.setReviewComment(null);
             course.setReviewedAt(null);
             course.setReviewedBy(null);
             course.setSubmittedForReviewAt(LocalDateTime.now());
             Course saved = courseRepository.save(course);
-            publishCourseEvent(saved, "COURSE_APPROVAL_REQUEST", "SUBMITTED");
+            publishCourseEvent(saved, CourseConstants.EVENT_COURSE_APPROVAL_REQUEST, "SUBMITTED");
             return saved;
         });
     }
@@ -208,13 +203,13 @@ public class CourseService {
     public Optional<Course> approveCourse(Long id, Long reviewerId, String role) {
         requireAdmin(role);
         return courseRepository.findById(id).map(course -> {
-            course.setStatus("PUBLISHED");
-            course.setReviewStatus("APPROVED");
+            course.setStatus(CourseConstants.STATUS_PUBLISHED);
+            course.setReviewStatus(CourseConstants.STATUS_APPROVED);
             course.setReviewComment("Approved for publication");
             course.setReviewedAt(LocalDateTime.now());
             course.setReviewedBy(reviewerId);
             Course saved = courseRepository.save(course);
-            publishCourseEvent(saved, "COURSE_APPROVED", null);
+            publishCourseEvent(saved, EVENT_COURSE_APPROVED, null);
             return saved;
         });
     }
@@ -222,13 +217,13 @@ public class CourseService {
     public Optional<Course> rejectCourse(Long id, String reason, Long reviewerId, String role) {
         requireAdmin(role);
         return courseRepository.findById(id).map(course -> {
-            course.setStatus("REJECTED");
-            course.setReviewStatus("REJECTED");
+            course.setStatus(STATUS_REJECTED);
+            course.setReviewStatus(REVIEW_STATUS_REJECTED);
             course.setReviewComment(reason == null || reason.isBlank() ? "Course rejected during moderation" : reason.trim());
             course.setReviewedAt(LocalDateTime.now());
             course.setReviewedBy(reviewerId);
             Course saved = courseRepository.save(course);
-            publishCourseEvent(saved, "COURSE_REJECTED", null);
+            publishCourseEvent(saved, EVENT_COURSE_REJECTED, null);
             return saved;
         });
     }
@@ -243,10 +238,10 @@ public class CourseService {
                 accessControlService.requireOwnership(course, reviewerId, role);
                 course.setReviewComment("Unpublished by instructor");
             }
-            course.setStatus("DRAFT");
-            course.setReviewStatus("UNPUBLISHED");
+            course.setStatus(STATUS_DRAFT);
+            course.setReviewStatus(REVIEW_STATUS_UNPUBLISHED);
             Course saved = courseRepository.save(course);
-            publishCourseEvent(saved, "COURSE_UNPUBLISHED", null);
+            publishCourseEvent(saved, EVENT_COURSE_UNPUBLISHED, null);
             return saved;
         });
     }
@@ -263,6 +258,35 @@ public class CourseService {
         if (!accessControlService.isAdmin(role)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Admin access required");
         }
+    }
+
+    private boolean matchesPublishedFilters(Course course, String category, String level, Long instructorId, String language) {
+        return matchesIgnoreCase(course.getCategory(), category)
+                && matchesIgnoreCase(course.getLevel(), level)
+                && (instructorId == null || instructorId.equals(course.getInstructorId()))
+                && matchesIgnoreCase(course.getLanguage(), language);
+    }
+
+    private boolean matchesIgnoreCase(String actualValue, String filterValue) {
+        return filterValue == null
+                || filterValue.isBlank()
+                || (actualValue != null && filterValue.equalsIgnoreCase(actualValue));
+    }
+
+    private boolean matchesCourseQuery(Course course, String query) {
+        if (query == null || query.isBlank()) {
+            return true;
+        }
+        String normalizedQuery = query.toLowerCase();
+        return containsIgnoreCase(course.getTitle(), normalizedQuery)
+                || containsIgnoreCase(course.getDescription(), normalizedQuery)
+                || containsIgnoreCase(course.getCategory(), normalizedQuery)
+                || containsIgnoreCase(course.getLanguage(), normalizedQuery)
+                || containsIgnoreCase(course.getInstructorName(), normalizedQuery);
+    }
+
+    private boolean containsIgnoreCase(String value, String normalizedQuery) {
+        return value != null && value.toLowerCase().contains(normalizedQuery);
     }
 
     private Course hydrateCourseContent(Course course) {
@@ -367,16 +391,18 @@ public class CourseService {
         if (verificationCache.containsKey(instructorId)) {
             String cachedStatus = verificationCache.get(instructorId);
             course.setInstructorVerificationStatus(cachedStatus);
-            course.setInstructorVerified("APPROVED".equalsIgnoreCase(cachedStatus));
+            course.setInstructorVerified(CourseConstants.STATUS_APPROVED.equalsIgnoreCase(cachedStatus));
             return course;
         }
         try {
-            Map<?, ?> profile = restTemplate.getForObject("http://user-service/users/" + instructorId, Map.class);
-            Object status = profile == null ? null : profile.get("instructorVerificationStatus");
-            String verificationStatus = status == null ? null : status.toString();
+            InstructorProfileResponse profile = restTemplate.getForObject(
+                    "http://user-service/users/" + instructorId,
+                    InstructorProfileResponse.class
+            );
+            String verificationStatus = profile == null ? null : profile.instructorVerificationStatus();
             verificationCache.put(instructorId, verificationStatus);
             course.setInstructorVerificationStatus(verificationStatus);
-            course.setInstructorVerified("APPROVED".equalsIgnoreCase(verificationStatus));
+            course.setInstructorVerified(CourseConstants.STATUS_APPROVED.equalsIgnoreCase(verificationStatus));
         } catch (RestClientException ex) {
             verificationCache.put(instructorId, null);
             course.setInstructorVerified(false);
@@ -401,5 +427,8 @@ public class CourseService {
         } catch (Exception e) {
             System.err.println("Error publishing course moderation event: " + e.getMessage());
         }
+    }
+
+    record InstructorProfileResponse(String instructorVerificationStatus) {
     }
 }

@@ -5,6 +5,8 @@ import com.olp.course.model.DiscussionReply;
 import com.olp.course.model.DiscussionThread;
 import com.olp.course.service.DiscussionService;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -16,6 +18,10 @@ import org.springframework.web.client.RestTemplate;
 @RestController
 @RequestMapping("/courses/{courseId}/discussions")
 public class DiscussionController {
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(
+    DiscussionController.class
+  );
 
   private final DiscussionService discussionService;
   private final RestTemplate restTemplate;
@@ -45,29 +51,32 @@ public class DiscussionController {
       headers.set("X-User-Id", String.valueOf(userId));
       HttpEntity<String> entity = new HttpEntity<>(headers);
 
-      ResponseEntity<Map> response = restTemplate.exchange(
+      ResponseEntity<EnrollmentAccessResponse> response = restTemplate.exchange(
         "http://enrollment-service/enrollments/check/" + courseId,
         HttpMethod.GET,
         entity,
-        Map.class
+        EnrollmentAccessResponse.class
       );
 
       if (
         response.getStatusCode() == HttpStatus.OK && response.getBody() != null
       ) {
-        Boolean enrolled = (Boolean) response.getBody().get("enrolled");
+        Boolean enrolled = response.getBody().enrolled();
         return enrolled != null && enrolled;
       }
     } catch (Exception e) {
-      System.err.println(
-        "Failed to check enrollment for user " + userId + ": " + e.getMessage()
+      LOGGER.warn(
+        "Failed to check enrollment for userId={} courseId={}",
+        userId,
+        courseId,
+        e
       );
     }
     return false; // Default deny if check fails
   }
 
   @PostMapping
-  public ResponseEntity<?> createThread(
+  public ResponseEntity<Object> createThread(
     @PathVariable Long courseId,
     @RequestBody DiscussionThread thread,
     @RequestHeader(value = "X-User-Id", required = false) Long userId,
@@ -76,12 +85,19 @@ public class DiscussionController {
     if (userId == null) {
       return ResponseEntity
         .status(HttpStatus.UNAUTHORIZED)
-        .body(Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MISSING_USER_ID));
+        .body(
+          Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MISSING_USER_ID)
+        );
     }
     if (!checkEnrollmentOrAccess(courseId, userId, userRole)) {
       return ResponseEntity
         .status(HttpStatus.FORBIDDEN)
-        .body(Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MUST_BE_ENROLLED_TO_POST));
+        .body(
+          Map.of(
+            CourseConstants.KEY_ERROR,
+            CourseConstants.MSG_MUST_BE_ENROLLED_TO_POST
+          )
+        );
     }
 
     thread.setUserId(userId);
@@ -92,7 +108,7 @@ public class DiscussionController {
   }
 
   @GetMapping
-  public ResponseEntity<?> getThreads(
+  public ResponseEntity<Object> getThreads(
     @PathVariable Long courseId,
     @RequestHeader(value = "X-User-Id", required = false) Long userId,
     @RequestHeader(value = "X-User-Role", required = false) String userRole
@@ -104,18 +120,25 @@ public class DiscussionController {
     ) {
       return ResponseEntity
         .status(HttpStatus.UNAUTHORIZED)
-        .body(Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MISSING_USER_ID));
+        .body(
+          Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MISSING_USER_ID)
+        );
     }
     if (!checkEnrollmentOrAccess(courseId, userId, userRole)) {
       return ResponseEntity
         .status(HttpStatus.FORBIDDEN)
-        .body(Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MUST_BE_ENROLLED_TO_VIEW));
+        .body(
+          Map.of(
+            CourseConstants.KEY_ERROR,
+            CourseConstants.MSG_MUST_BE_ENROLLED_TO_VIEW
+          )
+        );
     }
     return ResponseEntity.ok(discussionService.getThreadsByCourse(courseId));
   }
 
   @GetMapping("/{threadId}")
-  public ResponseEntity<?> getThread(
+  public ResponseEntity<Object> getThread(
     @PathVariable Long courseId,
     @PathVariable Long threadId,
     @RequestHeader(value = "X-User-Id", required = false) Long userId,
@@ -128,30 +151,41 @@ public class DiscussionController {
     ) {
       return ResponseEntity
         .status(HttpStatus.UNAUTHORIZED)
-        .body(Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MISSING_USER_ID));
+        .body(
+          Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MISSING_USER_ID)
+        );
     }
     if (!checkEnrollmentOrAccess(courseId, userId, userRole)) {
       return ResponseEntity
         .status(HttpStatus.FORBIDDEN)
-        .body(Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MUST_BE_ENROLLED_TO_VIEW));
+        .body(
+          Map.of(
+            CourseConstants.KEY_ERROR,
+            CourseConstants.MSG_MUST_BE_ENROLLED_TO_VIEW
+          )
+        );
     }
     return discussionService
       .getThreadById(threadId)
-      .map(ResponseEntity::ok)
+      .<ResponseEntity<Object>>map(ResponseEntity::ok)
       .orElse(ResponseEntity.notFound().build());
   }
 
   @DeleteMapping("/{threadId}")
-  public ResponseEntity<?> deleteThread(
+  public ResponseEntity<Object> deleteThread(
     @PathVariable Long courseId,
     @PathVariable Long threadId,
     @RequestHeader(value = "X-User-Id", required = false) Long userId,
     @RequestHeader(value = "X-User-Role", required = false) String userRole
   ) {
-    if (userId == null && !CourseConstants.ROLE_ADMIN.equalsIgnoreCase(userRole)) {
+    if (
+      userId == null && !CourseConstants.ROLE_ADMIN.equalsIgnoreCase(userRole)
+    ) {
       return ResponseEntity
         .status(HttpStatus.UNAUTHORIZED)
-        .body(Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MISSING_USER_ID));
+        .body(
+          Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MISSING_USER_ID)
+        );
     }
     if (discussionService.deleteThread(threadId, userId, userRole)) {
       return ResponseEntity.ok().build();
@@ -160,7 +194,7 @@ public class DiscussionController {
   }
 
   @PostMapping("/{threadId}/replies")
-  public ResponseEntity<?> addReply(
+  public ResponseEntity<Object> addReply(
     @PathVariable Long courseId,
     @PathVariable Long threadId,
     @RequestBody DiscussionReply reply,
@@ -170,12 +204,19 @@ public class DiscussionController {
     if (userId == null) {
       return ResponseEntity
         .status(HttpStatus.UNAUTHORIZED)
-        .body(Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MISSING_USER_ID));
+        .body(
+          Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MISSING_USER_ID)
+        );
     }
     if (!checkEnrollmentOrAccess(courseId, userId, userRole)) {
       return ResponseEntity
         .status(HttpStatus.FORBIDDEN)
-        .body(Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MUST_BE_ENROLLED_TO_REPLY));
+        .body(
+          Map.of(
+            CourseConstants.KEY_ERROR,
+            CourseConstants.MSG_MUST_BE_ENROLLED_TO_REPLY
+          )
+        );
     }
 
     reply.setUserId(userId);
@@ -186,17 +227,21 @@ public class DiscussionController {
   }
 
   @DeleteMapping("/{threadId}/replies/{replyId}")
-  public ResponseEntity<?> deleteReply(
+  public ResponseEntity<Object> deleteReply(
     @PathVariable Long courseId,
     @PathVariable Long threadId,
     @PathVariable Long replyId,
     @RequestHeader(value = "X-User-Id", required = false) Long userId,
     @RequestHeader(value = "X-User-Role", required = false) String userRole
   ) {
-    if (userId == null && !CourseConstants.ROLE_ADMIN.equalsIgnoreCase(userRole)) {
+    if (
+      userId == null && !CourseConstants.ROLE_ADMIN.equalsIgnoreCase(userRole)
+    ) {
       return ResponseEntity
         .status(HttpStatus.UNAUTHORIZED)
-        .body(Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MISSING_USER_ID));
+        .body(
+          Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MISSING_USER_ID)
+        );
     }
     if (discussionService.deleteReply(replyId, userId, userRole)) {
       return ResponseEntity.ok().build();
@@ -253,7 +298,7 @@ public class DiscussionController {
   }
 
   @PutMapping("/{threadId}/replies/{replyId}/upvote")
-  public ResponseEntity<?> upvoteReply(
+  public ResponseEntity<Object> upvoteReply(
     @PathVariable Long courseId,
     @PathVariable Long threadId,
     @PathVariable Long replyId,
@@ -263,13 +308,22 @@ public class DiscussionController {
     if (userId == null) {
       return ResponseEntity
         .status(HttpStatus.UNAUTHORIZED)
-        .body(Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MISSING_USER_ID));
+        .body(
+          Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MISSING_USER_ID)
+        );
     }
     if (!checkEnrollmentOrAccess(courseId, userId, userRole)) {
       return ResponseEntity
         .status(HttpStatus.FORBIDDEN)
-        .body(Map.of(CourseConstants.KEY_ERROR, CourseConstants.MSG_MUST_BE_ENROLLED_TO_VOTE));
+        .body(
+          Map.of(
+            CourseConstants.KEY_ERROR,
+            CourseConstants.MSG_MUST_BE_ENROLLED_TO_VOTE
+          )
+        );
     }
     return ResponseEntity.ok(discussionService.upvoteReply(threadId, replyId));
   }
+
+  record EnrollmentAccessResponse(Boolean enrolled) {}
 }

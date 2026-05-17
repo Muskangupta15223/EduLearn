@@ -41,11 +41,11 @@ services:
         limits:
           memory: 512M
     healthcheck:
-      test: ["CMD", "mysqladmin" ,"ping", "-h", "localhost"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${SPRING_DATASOURCE_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 40s
+      start_period: 90s
 
   redis:
     image: redis:7-alpine
@@ -128,7 +128,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 40s
+      start_period: 90s
 
   config-service:
     image: ${SERVICE_IMAGE_PREFIX:-muskangupta8239}/config-service:latest
@@ -157,7 +157,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 40s
+      start_period: 90s
 
   api-gateway:
     image: ${SERVICE_IMAGE_PREFIX:-muskangupta8239}/api-gateway:latest
@@ -186,7 +186,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 40s
+      start_period: 90s
 
   auth-service:
     image: ${SERVICE_IMAGE_PREFIX:-muskangupta8239}/auth-service:latest
@@ -223,7 +223,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 40s
+      start_period: 90s
 
   user-service:
     image: ${SERVICE_IMAGE_PREFIX:-muskangupta8239}/user-service:latest
@@ -257,7 +257,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 40s
+      start_period: 90s
 
   course-service:
     image: ${SERVICE_IMAGE_PREFIX:-muskangupta8239}/course-service:latest
@@ -289,7 +289,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 40s
+      start_period: 90s
 
   enrollment-service:
     image: ${SERVICE_IMAGE_PREFIX:-muskangupta8239}/enrollment-service:latest
@@ -321,7 +321,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 40s
+      start_period: 90s
 
   payment-service:
     image: ${SERVICE_IMAGE_PREFIX:-muskangupta8239}/payment-service:latest
@@ -356,7 +356,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 40s
+      start_period: 90s
 
   notification-service:
     image: ${SERVICE_IMAGE_PREFIX:-muskangupta8239}/notification-service:latest
@@ -391,7 +391,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 40s
+      start_period: 90s
 
   admin-server:
     image: ${SERVICE_IMAGE_PREFIX:-muskangupta8239}/admin-server:latest
@@ -420,7 +420,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 40s
+      start_period: 90s
 
   frontend:
     image: ${SERVICE_IMAGE_PREFIX:-muskangupta8239}/frontend:latest
@@ -435,7 +435,7 @@ services:
       api-gateway:
         condition: service_started
     environment:
-      - VITE_API_GATEWAY_URL=http://localhost:8080
+      - VITE_API_GATEWAY_URL=
     deploy:
       resources:
         limits:

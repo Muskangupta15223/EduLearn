@@ -62,7 +62,7 @@ public class AuthController {
   }
 
   @PostMapping("/register")
-  public ResponseEntity<?> register(@RequestBody RegisterRequest request) {
+  public ResponseEntity<Object> register(@RequestBody RegisterRequest request) {
       String email = normalizeEmail(request.email());
       String password = request.password();
 
@@ -85,11 +85,11 @@ public class AuthController {
       publishUserSignupEvent(saved);
 
       String token = jwtUtil.generateToken(saved.getEmail(), saved.getRole(), saved.getId(), saved.getName());
-      return ResponseEntity.ok(new AuthResponse(token, saved));
+      return ResponseEntity.ok(AuthResponse.from(token, saved));
   }
 
   @PostMapping("/login")
-  public ResponseEntity<?> login(@RequestBody LoginRequest request) {
+  public ResponseEntity<Object> login(@RequestBody LoginRequest request) {
       String email = normalizeEmail(request.email());
       String password = request.password();
       
@@ -105,7 +105,7 @@ public class AuthController {
       return handleNormalLogin(email, password);
   }
 
-  private ResponseEntity<?> handleBootstrapAdminLogin() {
+  private ResponseEntity<Object> handleBootstrapAdminLogin() {
       AuthUser admin = authUserRepository.findByEmail(normalizeEmail(bootstrapAdminEmail))
               .orElseGet(AuthUser::new);
       admin.setEmail(normalizeEmail(bootstrapAdminEmail));
@@ -117,10 +117,10 @@ public class AuthController {
       publishUserSignupEvent(saved);
       publishUserLoginEvent(saved);
       String token = jwtUtil.generateToken(saved.getEmail(), saved.getRole(), saved.getId(), saved.getName());
-      return ResponseEntity.ok(new AuthResponse(token, saved));
+      return ResponseEntity.ok(AuthResponse.from(token, saved));
   }
 
-  private ResponseEntity<?> handleNormalLogin(String email, String password) {
+  private ResponseEntity<Object> handleNormalLogin(String email, String password) {
       AuthUser user = authUserRepository.findByEmail(email).orElse(null);
       if (user == null || user.getPassword() == null) {
           return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ErrorResponse(AuthConstants.MSG_INVALID_CREDENTIALS));
@@ -138,7 +138,7 @@ public class AuthController {
       publishUserLoginEvent(user);
       log.info("Login success for userId={} email={} role={}", user.getId(), user.getEmail(), user.getRole());
       String token = jwtUtil.generateToken(user.getEmail(), user.getRole(), user.getId(), user.getName());
-      return ResponseEntity.ok(new AuthResponse(token, user));
+      return ResponseEntity.ok(AuthResponse.from(token, user));
   }
 
   private boolean checkAndUpdatePassword(AuthUser user, String password) {
@@ -167,7 +167,7 @@ public class AuthController {
   }
 
   @PostMapping("/forgot-password")
-  public ResponseEntity<?> forgotPassword(@RequestBody ForgotPasswordRequest request) {
+  public ResponseEntity<Object> forgotPassword(@RequestBody ForgotPasswordRequest request) {
       String email = normalizeEmail(request.email());
       AuthUser user = authUserRepository.findByEmail(email).orElse(null);
       if (user == null) {
@@ -193,7 +193,7 @@ public class AuthController {
   }
 
   @PostMapping("/reset-password")
-  public ResponseEntity<?> resetPassword(@RequestBody ResetPasswordRequest request) {
+  public ResponseEntity<Object> resetPassword(@RequestBody ResetPasswordRequest request) {
       String token = request.token();
       String newPassword = request.password();
 
@@ -222,7 +222,7 @@ public class AuthController {
   }
 
   @GetMapping("/login/success")
-  public ResponseEntity<?> loginSuccess(@AuthenticationPrincipal OAuth2User oAuth2User) {
+  public ResponseEntity<Object> loginSuccess(@AuthenticationPrincipal OAuth2User oAuth2User) {
     if (oAuth2User == null) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
     }
@@ -253,18 +253,14 @@ public class AuthController {
     log.info("OAuth login success for userId={} email={} role={}", user.getId(), user.getEmail(), user.getRole());
     String token = jwtUtil.generateToken(user.getEmail(), user.getRole(), user.getId(), user.getName());
 
-    Map<String, Object> response = new HashMap<>();
-    response.put(AuthConstants.KEY_MESSAGE, "Google OAuth login successful");
-    response.put(AuthConstants.KEY_TOKEN, token);
-    response.put("user", user);
-    return ResponseEntity.ok(response);
+    return ResponseEntity.ok(OAuthLoginSuccessResponse.from("Google OAuth login successful", token, user));
   }
 
   @GetMapping("/me")
-  public ResponseEntity<?> me(@RequestHeader(value = "X-User-Email", required = false) String email) {
+  public ResponseEntity<Object> me(@RequestHeader(value = "X-User-Email", required = false) String email) {
     if (email == null || email.isEmpty()) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
     return authUserRepository.findByEmail(email)
-        .<ResponseEntity<?>>map(user -> {
+        .<ResponseEntity<Object>>map(user -> {
             if (AuthConstants.ROLE_DEACTIVATED.equalsIgnoreCase(user.getRole())) {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorResponse(AuthConstants.MSG_ACCOUNT_DEACTIVATED_SHORT));
             }
@@ -278,7 +274,7 @@ public class AuthController {
   }
 
   @PostMapping("/refresh")
-  public ResponseEntity<?> refresh(@RequestHeader(value = "X-User-Email", required = false) String email) {
+  public ResponseEntity<Object> refresh(@RequestHeader(value = "X-User-Email", required = false) String email) {
       if (email == null || email.isBlank()) {
           return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ErrorResponse(AuthConstants.MSG_MISSING_AUTH_USER));
       }
@@ -290,11 +286,11 @@ public class AuthController {
           return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorResponse(AuthConstants.MSG_ACCOUNT_DEACTIVATED_SHORT));
       }
       String token = jwtUtil.generateToken(user.getEmail(), user.getRole(), user.getId(), user.getName());
-      return ResponseEntity.ok(new AuthResponse(token, user));
+      return ResponseEntity.ok(AuthResponse.from(token, user));
   }
 
   @PostMapping("/validate")
-  public ResponseEntity<?> validate(@RequestBody TokenRequest request) {
+  public ResponseEntity<Object> validate(@RequestBody TokenRequest request) {
       String token = request.token();
       if (token == null || token.isBlank()) {
           return ResponseEntity.badRequest().body(new ErrorResponse("Token is required"));
@@ -314,7 +310,7 @@ public class AuthController {
   }
 
   @PutMapping("/password")
-  public ResponseEntity<?> changePassword(
+  public ResponseEntity<Object> changePassword(
           @RequestHeader(value = "X-User-Email", required = false) String email,
           @RequestBody ChangePasswordRequest request) {
       if (email == null || email.isBlank()) {
@@ -343,7 +339,7 @@ public class AuthController {
   }
 
   @PutMapping("/profile")
-  public ResponseEntity<?> updateProfile(
+  public ResponseEntity<Object> updateProfile(
           @RequestHeader(value = "X-User-Email", required = false) String email,
           @RequestBody ProfileUpdateRequest request) {
       if (email == null || email.isBlank()) {
@@ -365,7 +361,7 @@ public class AuthController {
   }
 
   @PostMapping("/logout")
-  public ResponseEntity<?> logout() {
+  public ResponseEntity<Object> logout() {
     return ResponseEntity.ok(new MessageResponse("Logged out"));
   }
 

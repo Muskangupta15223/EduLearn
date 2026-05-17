@@ -30,6 +30,7 @@ public class QuizService {
     private final QuizRepository quizRepository;
     private final QuestionRepository questionRepository;
     private final QuizAttemptRepository attemptRepository;
+    private final CourseRepository courseRepository;
     private final AccessControlService accessControlService;
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final ObjectMapper objectMapper;
@@ -41,6 +42,7 @@ public class QuizService {
         this.quizRepository = quizRepository;
         this.questionRepository = questionRepository;
         this.attemptRepository = attemptRepository;
+        this.courseRepository = courseRepository;
         this.accessControlService = accessControlService;
         this.kafkaTemplate = kafkaTemplate;
         this.objectMapper = objectMapper;
@@ -50,7 +52,9 @@ public class QuizService {
         Course course = accessControlService.getOwnedCourse(courseId, userId, role);
         quiz.setCourseId(courseId);
         Quiz saved = quizRepository.save(quiz);
-        publishQuizEvent(saved, course);
+        if (Boolean.TRUE.equals(saved.getIsPublished())) {
+            publishQuizAvailabilityEvent(saved, course, "QUIZ_PUBLISHED");
+        }
         return saved;
     }
 
@@ -187,9 +191,13 @@ public class QuizService {
 
     public Optional<Quiz> publishQuiz(Long quizId, Long userId, String role, boolean published) {
         return quizRepository.findById(quizId).map(quiz -> {
-            accessControlService.getOwnedCourse(quiz.getCourseId(), userId, role);
+            Course course = accessControlService.getOwnedCourse(quiz.getCourseId(), userId, role);
             quiz.setIsPublished(published);
-            return quizRepository.save(quiz);
+            Quiz saved = quizRepository.save(quiz);
+            if (published) {
+                publishQuizAvailabilityEvent(saved, course, "QUIZ_PUBLISHED");
+            }
+            return saved;
         });
     }
 
@@ -274,9 +282,12 @@ public class QuizService {
 
     private void publishQuizResultEvent(QuizAttempt attempt) {
         try {
+            Course course = courseRepository.findById(attempt.getQuiz().getCourseId()).orElse(null);
             Map<String, Object> event = new HashMap<>();
             event.put("eventType", "QUIZ_RESULT");
             event.put("courseId", attempt.getQuiz().getCourseId());
+            event.put("courseTitle", course != null ? course.getTitle() : null);
+            event.put("instructorId", course != null ? course.getInstructorId() : null);
             event.put("quizId", attempt.getQuiz().getId());
             event.put("quizTitle", attempt.getQuiz().getTitle());
             event.put("attemptId", attempt.getId());
@@ -289,6 +300,20 @@ public class QuizService {
             kafkaTemplate.send("course-events", objectMapper.writeValueAsString(event));
         } catch (Exception e) {
             System.err.println("Error publishing quiz result event: " + e.getMessage());
+        }
+    }
+
+    private void publishQuizAvailabilityEvent(Quiz quiz, Course course, String eventType) {
+        try {
+            Map<String, Object> event = new HashMap<>();
+            event.put("eventType", eventType);
+            event.put("courseId", course.getId());
+            event.put("courseTitle", course.getTitle());
+            event.put("quizId", quiz.getId());
+            event.put("quizTitle", quiz.getTitle());
+            kafkaTemplate.send("course-events", objectMapper.writeValueAsString(event));
+        } catch (Exception e) {
+            System.err.println("Error publishing quiz availability event: " + e.getMessage());
         }
     }
 }

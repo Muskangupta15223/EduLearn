@@ -110,14 +110,24 @@ class EnrollmentServiceTest {
 
     @Test
     void isEnrolled_enrolled_returnsTrue() {
-        when(repository.existsByUserIdAndCourseId(1L, 100L)).thenReturn(true);
+        Enrollment enrollment = new Enrollment();
+        enrollment.setStatus("ACTIVE");
+        when(repository.findByUserIdAndCourseId(1L, 100L)).thenReturn(Optional.of(enrollment));
         assertTrue(enrollmentService.isEnrolled(1L, 100L));
     }
 
     @Test
     void isEnrolled_notEnrolled_returnsFalse() {
-        when(repository.existsByUserIdAndCourseId(1L, 200L)).thenReturn(false);
+        when(repository.findByUserIdAndCourseId(1L, 200L)).thenReturn(Optional.empty());
         assertFalse(enrollmentService.isEnrolled(1L, 200L));
+    }
+
+    @Test
+    void isEnrolled_pendingPayment_returnsFalse() {
+        Enrollment enrollment = new Enrollment();
+        enrollment.setStatus("PENDING_PAYMENT");
+        when(repository.findByUserIdAndCourseId(1L, 300L)).thenReturn(Optional.of(enrollment));
+        assertFalse(enrollmentService.isEnrolled(1L, 300L));
     }
 
     // --- unenroll ---
@@ -289,6 +299,38 @@ class EnrollmentServiceTest {
     void getCertificate_notEnrolled_returnsEmpty() {
         when(repository.findByUserIdAndCourseId(1L, 100L)).thenReturn(Optional.empty());
         assertTrue(enrollmentService.getCertificate(1L, 100L).isEmpty());
+    }
+
+    @Test
+    void generateCertificateImage_completedEnrollment_returnsPngBytes() {
+        Enrollment enrollment = new Enrollment();
+        enrollment.setId(1L);
+        enrollment.setUserId(1L);
+        enrollment.setCourseId(100L);
+        enrollment.setProgress(100);
+        enrollment.setStatus("COMPLETED");
+
+        Certificate cert = new Certificate();
+        cert.setId(1L);
+        cert.setUserId(1L);
+        cert.setCourseId(100L);
+        cert.setCourseTitle("Advanced Java Programming");
+        cert.setInstructorName("Jane Instructor");
+        cert.setCertificateNo("CERT-100-1");
+        cert.setVerificationCode("VERIFY123456");
+        cert.setIssuedAt(LocalDateTime.now());
+
+        when(repository.findByUserIdAndCourseId(1L, 100L)).thenReturn(Optional.of(enrollment));
+        when(certificateRepository.findByUserIdAndCourseId(1L, 100L)).thenReturn(Optional.of(cert));
+
+        Optional<byte[]> result = enrollmentService.generateCertificateImage(1L, 100L, "John Student");
+
+        assertTrue(result.isPresent());
+        assertTrue(result.get().length > 8);
+        assertEquals((byte) 0x89, result.get()[0]);
+        assertEquals((byte) 0x50, result.get()[1]);
+        assertEquals((byte) 0x4E, result.get()[2]);
+        assertEquals((byte) 0x47, result.get()[3]);
     }
 
     // --- getAllCertificates ---
